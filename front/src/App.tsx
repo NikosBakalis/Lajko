@@ -1,158 +1,88 @@
-import React, { useEffect, useState } from 'react';
-import { 
-  Container, 
-  Typography, 
-  Box, 
-  TextField, 
-  Button, 
-  List, 
-  ListItem, 
-  ListItemText,
-  Paper,
-  AppBar,
-  Toolbar
-} from '@mui/material';
-import { userApi, taskApi, User, Task } from './services/api';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Box, CssBaseline, CircularProgress } from '@mui/material';
+import Login from './pages/Login';
+import Dashboard from './pages/Dashboard';
+import { ThesisManagement } from './pages/ThesisManagement';
+import { FacultyDashboard } from './pages/FacultyDashboard';
+import { useAuth } from './contexts/AuthContext';
+import { AuthProvider } from './contexts/AuthContext';
 
-function App() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [newUser, setNewUser] = useState({ email: '', name: '' });
-  const [newTask, setNewTask] = useState({ title: '', description: '', userId: 1, completed: false });
+function AppRoutes() {
+  const { user, loading } = useAuth();
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
-    try {
-      const [usersResponse, tasksResponse] = await Promise.all([
-        userApi.getAll(),
-        taskApi.getAll()
-      ]);
-      setUsers(usersResponse.data);
-      setTasks(tasksResponse.data);
-    } catch (error) {
-      console.error('Failed to load data:', error);
+  const getDefaultRoute = () => {
+    if (!user) return '/login';
+    switch (user.role) {
+      case 'FACULTY':
+        return '/faculty';
+      case 'STUDENT':
+        return '/thesis';
+      case 'SECRETARY':
+        return '/dashboard';
+      default:
+        return '/login';
     }
   };
 
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await userApi.create(newUser);
-      setNewUser({ email: '', name: '' });
-      loadData();
-    } catch (error) {
-      console.error('Failed to create user:', error);
-    }
-  };
-
-  const handleCreateTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await taskApi.create(newTask);
-      setNewTask({ title: '', description: '', userId: 1, completed: false });
-      loadData();
-    } catch (error) {
-      console.error('Failed to create task:', error);
-    }
-  };
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
   return (
-    <Box sx={{ flexGrow: 1 }}>
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Task Manager
-          </Typography>
-        </Toolbar>
-      </AppBar>
-      
-      <Container maxWidth="md" sx={{ mt: 4 }}>
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Create User
-          </Typography>
-          <form onSubmit={handleCreateUser}>
-            <TextField
-              fullWidth
-              label="Email"
-              value={newUser.email}
-              onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-              margin="normal"
-            />
-            <TextField
-              fullWidth
-              label="Name"
-              value={newUser.name}
-              onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-              margin="normal"
-            />
-            <Button type="submit" variant="contained" sx={{ mt: 2 }}>
-              Create User
-            </Button>
-          </form>
-        </Paper>
-
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Create Task
-          </Typography>
-          <form onSubmit={handleCreateTask}>
-            <TextField
-              fullWidth
-              label="Title"
-              value={newTask.title}
-              onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-              margin="normal"
-            />
-            <TextField
-              fullWidth
-              label="Description"
-              value={newTask.description}
-              onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-              margin="normal"
-            />
-            <Button type="submit" variant="contained" sx={{ mt: 2 }}>
-              Create Task
-            </Button>
-          </form>
-        </Paper>
-
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Users
-          </Typography>
-          <List>
-            {users.map((user) => (
-              <ListItem key={user.id}>
-                <ListItemText
-                  primary={user.name}
-                  secondary={user.email}
-                />
-              </ListItem>
-            ))}
-          </List>
-        </Paper>
-
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Tasks
-          </Typography>
-          <List>
-            {tasks.map((task) => (
-              <ListItem key={task.id}>
-                <ListItemText
-                  primary={task.title}
-                  secondary={task.description}
-                />
-              </ListItem>
-            ))}
-          </List>
-        </Paper>
-      </Container>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <CssBaseline />
+      <Routes>
+        <Route 
+          path="/login" 
+          element={
+            user ? <Navigate to={getDefaultRoute()} replace /> : <Login />
+          } 
+        />
+        <Route 
+          path="/dashboard" 
+          element={
+            !user ? <Navigate to="/login" replace /> :
+            user.role === 'SECRETARY' ? <Dashboard /> : 
+            <Navigate to={getDefaultRoute()} replace />
+          } 
+        />
+        <Route 
+          path="/thesis" 
+          element={
+            !user ? <Navigate to="/login" replace /> :
+            user.role === 'STUDENT' ? <ThesisManagement /> : 
+            <Navigate to={getDefaultRoute()} replace />
+          } 
+        />
+        <Route 
+          path="/faculty" 
+          element={
+            !user ? <Navigate to="/login" replace /> :
+            user.role === 'FACULTY' ? <FacultyDashboard /> : 
+            <Navigate to={getDefaultRoute()} replace />
+          } 
+        />
+        <Route 
+          path="/" 
+          element={<Navigate to={getDefaultRoute()} replace />} 
+        />
+      </Routes>
     </Box>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </Router>
   );
 }
 

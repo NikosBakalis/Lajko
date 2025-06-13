@@ -10,22 +10,48 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  tasks     Task[]
+enum UserRole {
+  STUDENT
+  FACULTY
+  SECRETARY
 }
 
-model Task {
-  id          Int      @id @default(autoincrement())
-  title       String
-  description String?
-  completed   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  userId      Int
-  user        User     @relation(fields: [userId], references: [id])
+enum ThesisStatus {
+  OPEN
+  ASSIGNED
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id             Int      @id @default(autoincrement())
+  username       String   @unique
+  password       String
+  email          String   @unique
+  fullName       String
+  role           UserRole
+  studentId      String?  @unique
+  postalAddress  String?
+  mobilePhone    String?
+  landlinePhone  String?
+  // Thesis relationships
+  facultyTheses  Thesis[] @relation("FacultyTheses")
+  selectedTheses Thesis[] @relation("StudentSelections")
+  assignedThesis Thesis?  @relation("AssignedThesis")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Thesis {
+  id             Int      @id @default(autoincrement())
+  title          String
+  description    String
+  status         ThesisStatus @default(OPEN)
+  facultyId      Int
+  faculty        User     @relation("FacultyTheses", fields: [facultyId], references: [id])
+  selectedBy     User[]   @relation("StudentSelections")
+  assignedToId   Int?     @unique
+  assignedTo     User?    @relation("AssignedThesis", fields: [assignedToId], references: [id])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
