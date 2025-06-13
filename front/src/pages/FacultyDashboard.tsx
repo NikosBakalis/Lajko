@@ -17,10 +17,41 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
+  Tab,
+  Chip,
+  Card,
+  CardContent,
+  Divider,
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { Thesis } from '../types';
+
+interface TabPanelProps {
+  children?: React.ReactNode;
+  index: number;
+  value: number;
+}
+
+function TabPanel(props: TabPanelProps) {
+  const { children, value, index } = props;
+
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`thesis-tabpanel-${index}`}
+      aria-labelledby={`thesis-tab-${index}`}
+    >
+      {value === index && (
+        <Box sx={{ p: 3 }}>
+          {children}
+        </Box>
+      )}
+    </div>
+  );
+}
 
 export const FacultyDashboard: React.FC = () => {
   const { user, logout } = useAuth();
@@ -29,6 +60,7 @@ export const FacultyDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newThesis, setNewThesis] = useState({ title: '', description: '' });
+  const [tabValue, setTabValue] = useState(0);
 
   const loadData = useCallback(async () => {
     try {
@@ -36,7 +68,7 @@ export const FacultyDashboard: React.FC = () => {
       setError(null);
       const response = await api.get<Thesis[]>('/theses');
       const theses = response.data;
-      const facultyTheses = theses.filter(t => t.faculty && t.faculty.id === user?.id);
+      const facultyTheses = theses.filter(t => t.facultyId === user?.id);
       setMyTheses(facultyTheses);
     } catch (err) {
       setError('Failed to load theses. Please try again later.');
@@ -79,6 +111,19 @@ export const FacultyDashboard: React.FC = () => {
     window.location.href = '/login';
   };
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'OPEN':
+        return 'primary';
+      case 'ASSIGNED':
+        return 'success';
+      case 'COMPLETED':
+        return 'info';
+      default:
+        return 'default';
+    }
+  };
+
   if (loading) {
     return (
       <Container>
@@ -117,67 +162,219 @@ export const FacultyDashboard: React.FC = () => {
         </Alert>
       )}
 
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {myTheses.map((thesis) => (
-          <Paper key={thesis.id} sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              {thesis.title}
-            </Typography>
-            <Typography color="textSecondary" gutterBottom>
-              Status: {thesis.status}
-            </Typography>
-            <Typography variant="body1" paragraph>
-              {thesis.description}
-            </Typography>
+      <Paper>
+        <Tabs
+          value={tabValue}
+          onChange={(event: React.SyntheticEvent, newValue: number) => setTabValue(newValue)}
+          indicatorColor="primary"
+          textColor="primary"
+          centered
+        >
+          <Tab label="All Theses" />
+          <Tab label="Open Theses" />
+          <Tab label="Assigned Theses" />
+          <Tab label="Completed Theses" />
+        </Tabs>
 
-            {thesis.status === 'OPEN' && thesis.selectedBy.length > 0 && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle1" gutterBottom>
-                  Students who selected this thesis:
-                </Typography>
-                <TableContainer>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Name</TableCell>
-                        <TableCell>Email</TableCell>
-                        <TableCell>Actions</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {thesis.selectedBy.map((student) => (
-                        <TableRow key={student.id}>
-                          <TableCell>{student.fullName}</TableCell>
-                          <TableCell>{student.email}</TableCell>
-                          <TableCell>
-                            <Button
-                              color="primary"
-                              onClick={() => handleAssignThesis(thesis.id, student.id)}
-                            >
-                              Assign Thesis
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Box>
-            )}
+        <TabPanel value={tabValue} index={0}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {myTheses.map((thesis) => (
+              <Card key={thesis.id}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                    <Typography variant="h6">{thesis.title}</Typography>
+                    <Chip 
+                      label={thesis.status} 
+                      color={getStatusColor(thesis.status)}
+                      size="small"
+                    />
+                  </Box>
+                  <Typography color="textSecondary" paragraph>
+                    {thesis.description}
+                  </Typography>
+                  
+                  {thesis.selectedBy && thesis.selectedBy.length > 0 && (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography variant="subtitle1" gutterBottom>
+                        Students who selected this thesis:
+                      </Typography>
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Name</TableCell>
+                              <TableCell>Email</TableCell>
+                              <TableCell align="right">Actions</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {thesis.selectedBy.map((student) => (
+                              <TableRow key={student.id}>
+                                <TableCell>{student.fullName}</TableCell>
+                                <TableCell>{student.email}</TableCell>
+                                <TableCell align="right">
+                                  <Button
+                                    size="small"
+                                    color="primary"
+                                    onClick={() => handleAssignThesis(thesis.id, student.id)}
+                                  >
+                                    Assign Thesis
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </>
+                  )}
 
-            {thesis.assignedTo && (
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle1">
-                  Assigned to: {thesis.assignedTo.fullName}
-                </Typography>
-              </Box>
-            )}
-          </Paper>
-        ))}
-      </Box>
+                  {thesis.assignedTo && (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography variant="subtitle1">
+                        Assigned to: {thesis.assignedTo.fullName}
+                      </Typography>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </Box>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={1}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {myTheses
+              .filter(thesis => thesis.status === 'OPEN')
+              .map((thesis) => (
+                <Card key={thesis.id}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                      <Typography variant="h6">{thesis.title}</Typography>
+                      <Chip 
+                        label={thesis.status} 
+                        color={getStatusColor(thesis.status)}
+                        size="small"
+                      />
+                    </Box>
+                    <Typography color="textSecondary" paragraph>
+                      {thesis.description}
+                    </Typography>
+                    
+                    {thesis.selectedBy && thesis.selectedBy.length > 0 && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="subtitle1" gutterBottom>
+                          Students who selected this thesis:
+                        </Typography>
+                        <TableContainer>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Name</TableCell>
+                                <TableCell>Email</TableCell>
+                                <TableCell align="right">Actions</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {thesis.selectedBy.map((student) => (
+                                <TableRow key={student.id}>
+                                  <TableCell>{student.fullName}</TableCell>
+                                  <TableCell>{student.email}</TableCell>
+                                  <TableCell align="right">
+                                    <Button
+                                      size="small"
+                                      color="primary"
+                                      onClick={() => handleAssignThesis(thesis.id, student.id)}
+                                    >
+                                      Assign Thesis
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+          </Box>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={2}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {myTheses
+              .filter(thesis => thesis.status === 'ASSIGNED')
+              .map((thesis) => (
+                <Card key={thesis.id}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                      <Typography variant="h6">{thesis.title}</Typography>
+                      <Chip 
+                        label={thesis.status} 
+                        color={getStatusColor(thesis.status)}
+                        size="small"
+                      />
+                    </Box>
+                    <Typography color="textSecondary" paragraph>
+                      {thesis.description}
+                    </Typography>
+                    {thesis.assignedTo && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="subtitle1">
+                          Assigned to: {thesis.assignedTo.fullName}
+                        </Typography>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+          </Box>
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={3}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {myTheses
+              .filter(thesis => thesis.status === 'COMPLETED')
+              .map((thesis) => (
+                <Card key={thesis.id}>
+                  <CardContent>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                      <Typography variant="h6">{thesis.title}</Typography>
+                      <Chip 
+                        label={thesis.status} 
+                        color={getStatusColor(thesis.status)}
+                        size="small"
+                      />
+                    </Box>
+                    <Typography color="textSecondary" paragraph>
+                      {thesis.description}
+                    </Typography>
+                    {thesis.assignedTo && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="subtitle1">
+                          Completed by: {thesis.assignedTo.fullName}
+                        </Typography>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+          </Box>
+        </TabPanel>
+      </Paper>
 
       {/* Create Thesis Dialog */}
-      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)}>
+      <Dialog
+        open={createDialogOpen}
+        onClose={() => setCreateDialogOpen(false)}
+      >
         <DialogTitle>Create New Thesis</DialogTitle>
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
