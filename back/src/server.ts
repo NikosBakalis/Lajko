@@ -22,12 +22,12 @@ declare global {
 
 const prisma = new PrismaClient();
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 // Enable CORS for all routes
 app.use(cors({
-  origin: 'http://localhost:3002',
+  origin: 'http://localhost:3000',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
@@ -205,10 +205,30 @@ app.post('/users', authenticateToken, isFacultyOrSecretary, async (req, res) => 
 
 app.delete('/users/:id', authenticateToken, isFacultyOrSecretary, async (req, res) => {
   try {
-    await prisma.user.delete({ where: { id: Number(req.params.id) } });
+    const userId = Number(req.params.id);
+    
+    // First, delete all theses associated with this user (both as faculty and as assigned student)
+    await prisma.thesis.deleteMany({
+      where: {
+        OR: [
+          { facultyId: userId },
+          { assignedToId: userId }
+        ]
+      }
+    });
+
+    // Then delete the user
+    await prisma.user.delete({ 
+      where: { id: userId }
+    });
+    
     res.status(204).send();
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete user' });
+    console.error('Error deleting user:', error);
+    res.status(500).json({ 
+      error: 'Failed to delete user',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 });
 

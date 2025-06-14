@@ -10,13 +10,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  STUDENT
+  FACULTY
+  SECRETARY
+}
+
+enum ThesisStatus {
+  OPEN
+  ASSIGNED
+  COMPLETED
+  CANCELLED
+}
+
 model User {
   id             Int      @id @default(autoincrement())
   username       String   @unique
   password       String
   email          String   @unique
   fullName       String
-  role           String   // Changed from UserRole enum
+  role           UserRole
   studentId      String?  @unique
   postalAddress  String?
   mobilePhone    String?
@@ -33,7 +46,7 @@ model Thesis {
   id             Int      @id @default(autoincrement())
   title          String
   description    String
-  status         String   @default("OPEN") // Changed from ThesisStatus enum
+  status         ThesisStatus @default(OPEN)
   facultyId      Int
   faculty        User     @relation("FacultyTheses", fields: [facultyId], references: [id])
   selectedBy     User[]   @relation("StudentSelections")

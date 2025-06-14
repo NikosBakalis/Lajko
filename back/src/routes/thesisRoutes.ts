@@ -22,6 +22,13 @@ router.get('/', (req: Request, res: Response, next: NextFunction) => {
     const theses = await prisma.$queryRaw`
       SELECT 
         t.id, t.title, t.description, t.status, t.facultyId, t."assignedToId",
+        json_object(
+          'id', f.id,
+          'username', f.username,
+          'email', f.email,
+          'fullName', f."fullName",
+          'role', f.role
+        ) as faculty,
         json_group_array(
           json_object(
             'id', u.id,
@@ -32,6 +39,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction) => {
           )
         ) as selectedBy
       FROM "Thesis" t
+      LEFT JOIN "User" f ON t."facultyId" = f.id
       LEFT JOIN "_StudentSelections" ss ON t.id = ss.A
       LEFT JOIN "User" u ON ss.B = u.id
       GROUP BY t.id
@@ -57,6 +65,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction) => {
         description: thesis.description,
         status: thesis.status,
         facultyId: thesis.facultyId,
+        faculty: JSON.parse(thesis.faculty),
         assignedToId: thesis.assignedToId,
         selectedBy: selectedByArray
       };
