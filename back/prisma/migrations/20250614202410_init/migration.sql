@@ -30,11 +30,14 @@ CREATE TABLE "Thesis" (
 );
 
 -- CreateTable
-CREATE TABLE "_SupervisingFaculty" (
-    "A" INTEGER NOT NULL,
-    "B" INTEGER NOT NULL,
-    CONSTRAINT "_SupervisingFaculty_A_fkey" FOREIGN KEY ("A") REFERENCES "Thesis" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "_SupervisingFaculty_B_fkey" FOREIGN KEY ("B") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+CREATE TABLE "SupervisingFaculty" (
+    "thesisId" INTEGER NOT NULL,
+    "facultyId" INTEGER NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+
+    PRIMARY KEY ("thesisId", "facultyId"),
+    CONSTRAINT "SupervisingFaculty_thesisId_fkey" FOREIGN KEY ("thesisId") REFERENCES "Thesis" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "SupervisingFaculty_facultyId_fkey" FOREIGN KEY ("facultyId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateTable
@@ -53,15 +56,6 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "User_studentId_key" ON "User"("studentId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Thesis_assignedToId_key" ON "Thesis"("assignedToId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "_SupervisingFaculty_AB_unique" ON "_SupervisingFaculty"("A", "B");
-
--- CreateIndex
-CREATE INDEX "_SupervisingFaculty_B_index" ON "_SupervisingFaculty"("B");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "_StudentSelections_AB_unique" ON "_StudentSelections"("A", "B");

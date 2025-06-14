@@ -24,37 +24,46 @@ enum ThesisStatus {
 }
 
 model User {
-  id             Int      @id @default(autoincrement())
-  username       String   @unique
-  password       String
-  email          String   @unique
-  fullName       String
-  role           UserRole
-  studentId      String?  @unique
-  postalAddress  String?
-  mobilePhone    String?
-  landlinePhone  String?
-  // Thesis relationships
-  facultyTheses  Thesis[] @relation("FacultyTheses")
-  supervisingTheses Thesis[] @relation("SupervisingFaculty")
-  selectedTheses Thesis[] @relation("StudentSelections")
-  assignedThesis Thesis?  @relation("AssignedThesis")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                Int      @id @default(autoincrement())
+  username          String   @unique
+  password          String
+  email             String   @unique
+  fullName          String
+  role              String
+  studentId         String?  @unique
+  postalAddress     String?
+  mobilePhone       String?
+  landlinePhone     String?
+  facultyTheses     Thesis[] @relation("FacultyTheses")
+  assignedTheses    Thesis[] @relation("AssignedTheses")
+  supervisingTheses SupervisingFaculty[]
+  selectedTheses    Thesis[] @relation("StudentSelections")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 model Thesis {
-  id             Int      @id @default(autoincrement())
-  title          String
-  description    String
-  pdfUrl         String?  // Optional field for PDF attachment
-  status         ThesisStatus @default(OPEN)
-  facultyId      Int
-  faculty        User     @relation("FacultyTheses", fields: [facultyId], references: [id])
-  supervisingFaculty User[] @relation("SupervisingFaculty")
-  selectedBy     User[]   @relation("StudentSelections")
-  assignedToId   Int?     @unique
-  assignedTo     User?    @relation("AssignedThesis", fields: [assignedToId], references: [id])
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                  Int      @id @default(autoincrement())
+  title               String
+  description         String
+  pdfUrl              String?
+  status              String   @default("OPEN")
+  facultyId           Int
+  faculty             User     @relation("FacultyTheses", fields: [facultyId], references: [id])
+  assignedToId        Int?
+  assignedTo          User?    @relation("AssignedTheses", fields: [assignedToId], references: [id])
+  supervisingFaculty  SupervisingFaculty[]
+  selectedBy          User[]   @relation("StudentSelections")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model SupervisingFaculty {
+  thesis     Thesis @relation(fields: [thesisId], references: [id])
+  thesisId   Int
+  faculty    User   @relation(fields: [facultyId], references: [id])
+  facultyId  Int
+  status     String @default("PENDING")
+
+  @@id([thesisId, facultyId])
 }

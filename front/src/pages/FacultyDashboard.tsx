@@ -89,6 +89,7 @@ export const FacultyDashboard: React.FC = () => {
   const [thesisToDelete, setThesisToDelete] = useState<number | null>(null);
   const [facultyMembers, setFacultyMembers] = useState<User[]>([]);
   const [selectedSupervisors, setSelectedSupervisors] = useState<User[]>([]);
+  const [pendingInvitations, setPendingInvitations] = useState<Thesis[]>([]);
 
   const loadData = useCallback(async () => {
     try {
@@ -102,6 +103,14 @@ export const FacultyDashboard: React.FC = () => {
       // Load faculty members for supervisor selection
       const facultyResponse = await api.get<User[]>('/users?role=FACULTY');
       setFacultyMembers(facultyResponse.data.filter(f => f.id !== user?.id));
+
+      // Filter pending invitations for the current faculty member
+      const invitations = theses.filter((thesis: Thesis) => 
+        thesis.supervisingFaculty.some((faculty: any) => 
+          faculty.id === user?.id && faculty.status === 'PENDING'
+        )
+      );
+      setPendingInvitations(invitations);
     } catch (err) {
       setError('Failed to load data. Please try again later.');
       console.error('Error loading data:', err);
@@ -200,6 +209,24 @@ export const FacultyDashboard: React.FC = () => {
     } catch (err) {
       setError('Failed to delete thesis. Please try again later.');
       console.error('Error deleting thesis:', err);
+    }
+  };
+
+  const handleAcceptInvitation = async (thesisId: number) => {
+    try {
+      await api.post(`/theses/${thesisId}/accept-invitation`);
+      await loadData(); // Refresh the list
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to accept invitation');
+    }
+  };
+
+  const handleRejectInvitation = async (thesisId: number) => {
+    try {
+      await api.post(`/theses/${thesisId}/reject-invitation`);
+      await loadData(); // Refresh the list
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reject invitation');
     }
   };
 
@@ -944,6 +971,50 @@ export const FacultyDashboard: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Pending Invitations Section */}
+      {pendingInvitations.length > 0 && (
+        <Box sx={{ mb: 4 }}>
+          <Typography variant="h5" component="h2" gutterBottom>
+            Pending Invitations
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {pendingInvitations.map((thesis) => (
+              <Box key={thesis.id} sx={{ width: '100%', mb: 2 }}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" component="h3">
+                      {thesis.title}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      {thesis.description}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      <strong>Faculty:</strong> {thesis.faculty.fullName}
+                    </Typography>
+                    <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        onClick={() => handleAcceptInvitation(thesis.id)}
+                      >
+                        Accept
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        onClick={() => handleRejectInvitation(thesis.id)}
+                      >
+                        Reject
+                      </Button>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      )}
     </Container>
   );
 };

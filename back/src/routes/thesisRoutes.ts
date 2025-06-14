@@ -55,77 +55,41 @@ router.get('/', (req: Request, res: Response, next: NextFunction) => {
   authenticate(req as any, res, next);
 }, async (req: Request, res: Response) => {
   try {
-    // Use Prisma client with type assertions to avoid TypeScript errors
-    const theses = await prisma.$queryRaw`
-      SELECT 
-        t.id, t.title, t.description, t."pdfUrl", t.status, t.facultyId, t."assignedToId",
-        json_object(
-          'id', f.id,
-          'username', f.username,
-          'email', f.email,
-          'fullName', f."fullName",
-          'role', f.role
-        ) as faculty,
-        json_group_array(
-          json_object(
-            'id', sf.id,
-            'username', sf.username,
-            'email', sf.email,
-            'fullName', sf."fullName",
-            'role', sf.role
-          )
-        ) as supervisingFaculty,
-        json_group_array(
-          json_object(
-            'id', u.id,
-            'username', u.username,
-            'email', u.email,
-            'fullName', u."fullName",
-            'role', u.role
-          )
-        ) as selectedBy
-      FROM "Thesis" t
-      LEFT JOIN "User" f ON t."facultyId" = f.id
-      LEFT JOIN "_SupervisingFaculty" sf_rel ON t.id = sf_rel.A
-      LEFT JOIN "User" sf ON sf_rel.B = sf.id
-      LEFT JOIN "_StudentSelections" ss ON t.id = ss.A
-      LEFT JOIN "User" u ON ss.B = u.id
-      GROUP BY t.id
-      ORDER BY t.id DESC
-    `;
+    const theses = await prisma.thesis.findMany({
+      include: {
+        faculty: true,
+        supervisingFaculty: {
+          include: {
+            faculty: true,
+          },
+        },
+        selectedBy: true,
+        assignedTo: true,
+      },
+      orderBy: { id: 'desc' },
+    });
 
     // Transform the data to match the frontend's expected format
-    const formattedTheses = Array.isArray(theses) ? theses.map((thesis: any) => {
-      let selectedByArray = [];
-      let supervisingFacultyArray = [];
-      try {
-        // Parse the JSON string and filter out any null entries
-        const parsedSelectedBy = JSON.parse(thesis.selectedBy || '[]');
-        selectedByArray = Array.isArray(parsedSelectedBy) 
-          ? parsedSelectedBy.filter((item: any) => item && item.id) 
-          : [];
-
-        const parsedSupervisingFaculty = JSON.parse(thesis.supervisingFaculty || '[]');
-        supervisingFacultyArray = Array.isArray(parsedSupervisingFaculty)
-          ? parsedSupervisingFaculty.filter((item: any) => item && item.id && item.role === 'FACULTY')
-          : [];
-      } catch (e) {
-        console.error('Error parsing arrays:', e);
-      }
-      
-      return {
-        id: thesis.id,
-        title: thesis.title,
-        description: thesis.description,
-        pdfUrl: thesis.pdfUrl,
-        status: thesis.status,
-        facultyId: thesis.facultyId,
-        faculty: JSON.parse(thesis.faculty),
-        supervisingFaculty: supervisingFacultyArray,
-        assignedToId: thesis.assignedToId,
-        selectedBy: selectedByArray
-      };
-    }) : [];
+    const formattedTheses = theses.map((thesis: any) => ({
+      id: thesis.id,
+      title: thesis.title,
+      description: thesis.description,
+      pdfUrl: thesis.pdfUrl,
+      status: thesis.status,
+      facultyId: thesis.facultyId,
+      faculty: thesis.faculty,
+      supervisingFaculty: thesis.supervisingFaculty.map((sf: any) => ({
+        id: sf.faculty.id,
+        username: sf.faculty.username,
+        email: sf.faculty.email,
+        fullName: sf.faculty.fullName,
+        role: sf.faculty.role,
+        status: sf.status,
+      })),
+      assignedToId: thesis.assignedToId,
+      assignedTo: thesis.assignedTo,
+      selectedBy: thesis.selectedBy,
+    }));
 
     res.json(formattedTheses);
   } catch (error) {
@@ -188,8 +152,8 @@ router.post('/', upload.single('pdf'), (req: Request, res: Response, next: NextF
             throw new Error('All supervising faculty members must have the FACULTY role');
           }
           await tx.$executeRaw`
-            INSERT INTO "_SupervisingFaculty" (A, B)
-            VALUES (${thesisId}, ${facultyId})
+            INSERT INTO "SupervisingFaculty" (thesisId, facultyId, status)
+            VALUES (${thesisId}, ${facultyId}, 'PENDING')
           `;
         }
       }
@@ -403,7 +367,7 @@ router.put('/:id', upload.single('pdf'), (req: Request, res: Response, next: Nex
       `;
 
       // Clear existing supervising faculty relationships
-      await tx.$executeRaw`DELETE FROM "_SupervisingFaculty" WHERE A = ${thesisId}`;
+      await tx.$executeRaw`DELETE FROM "SupervisingFaculty" WHERE thesisId = ${thesisId}`;
 
       // Add new supervising faculty members if provided
       if (parsedSupervisingFacultyIds && Array.isArray(parsedSupervisingFacultyIds) && parsedSupervisingFacultyIds.length > 0) {
@@ -414,8 +378,8 @@ router.put('/:id', upload.single('pdf'), (req: Request, res: Response, next: Nex
             throw new Error('All supervising faculty members must have the FACULTY role');
           }
           await tx.$executeRaw`
-            INSERT INTO "_SupervisingFaculty" (A, B)
-            VALUES (${thesisId}, ${facultyId})
+            INSERT INTO "SupervisingFaculty" (thesisId, facultyId, status)
+            VALUES (${thesisId}, ${facultyId}, 'PENDING')
           `;
         }
       }
@@ -467,6 +431,91 @@ router.delete('/:id', (req: Request, res: Response, next: NextFunction) => {
     res.json({ message: 'Thesis deleted successfully' });
   } catch (error) {
     console.error('Error deleting thesis:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Accept supervising faculty invitation
+router.post('/:id/accept-invitation', (req: Request, res: Response, next: NextFunction) => {
+  authenticate(req as any, res, next);
+}, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  
+  if (!authReq.user) {
+    return res.status(401).json({ message: 'Authentication required' });
+  }
+
+  // Check if user is faculty
+  if (authReq.user.role !== 'FACULTY') {
+    return res.status(403).json({ message: 'Only faculty members can accept invitations' });
+  }
+
+  const thesisId = parseInt(req.params.id);
+  const facultyId = authReq.user.id;
+
+  try {
+    // Check if invitation exists
+    const invitation = await prisma.$queryRaw`
+      SELECT * FROM "SupervisingFaculty" 
+      WHERE thesisId = ${thesisId} AND facultyId = ${facultyId} AND status = 'PENDING'
+    `;
+
+    if (!invitation || !Array.isArray(invitation) || invitation.length === 0) {
+      return res.status(404).json({ message: 'Invitation not found' });
+    }
+
+    // Update invitation status to ACCEPTED
+    await prisma.$executeRaw`
+      UPDATE "SupervisingFaculty" 
+      SET status = 'ACCEPTED'
+      WHERE thesisId = ${thesisId} AND facultyId = ${facultyId}
+    `;
+
+    res.json({ message: 'Invitation accepted successfully' });
+  } catch (error) {
+    console.error('Error accepting invitation:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Reject supervising faculty invitation
+router.post('/:id/reject-invitation', (req: Request, res: Response, next: NextFunction) => {
+  authenticate(req as any, res, next);
+}, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  
+  if (!authReq.user) {
+    return res.status(401).json({ message: 'Authentication required' });
+  }
+
+  // Check if user is faculty
+  if (authReq.user.role !== 'FACULTY') {
+    return res.status(403).json({ message: 'Only faculty members can reject invitations' });
+  }
+
+  const thesisId = parseInt(req.params.id);
+  const facultyId = authReq.user.id;
+
+  try {
+    // Check if invitation exists
+    const invitation = await prisma.$queryRaw`
+      SELECT * FROM "SupervisingFaculty" 
+      WHERE thesisId = ${thesisId} AND facultyId = ${facultyId} AND status = 'PENDING'
+    `;
+
+    if (!invitation || !Array.isArray(invitation) || invitation.length === 0) {
+      return res.status(404).json({ message: 'Invitation not found' });
+    }
+
+    // Delete the invitation
+    await prisma.$executeRaw`
+      DELETE FROM "SupervisingFaculty" 
+      WHERE thesisId = ${thesisId} AND facultyId = ${facultyId}
+    `;
+
+    res.json({ message: 'Invitation rejected successfully' });
+  } catch (error) {
+    console.error('Error rejecting invitation:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });
