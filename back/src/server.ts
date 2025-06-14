@@ -4,9 +4,17 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import fs from 'fs';
 import thesisRoutes from './routes/thesisRoutes';
 
 dotenv.config();
+
+// Ensure uploads directory exists
+const uploadDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 // Extend Express Request type to include user
 declare global {
@@ -34,6 +42,9 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+// Serve uploaded files
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Middleware to verify JWT token
 const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
@@ -123,7 +134,13 @@ app.get('/users/me', authenticateToken, async (req, res) => {
 // User routes
 app.get('/users', authenticateToken, async (req, res) => {
   try {
-    const users = await prisma.user.findMany();
+    const { role } = req.query;
+    let users;
+    if (role) {
+      users = await prisma.user.findMany({ where: { role: role as string } });
+    } else {
+      users = await prisma.user.findMany();
+    }
     res.json(users);
   } catch (error) {
     console.error('Error fetching users:', error);

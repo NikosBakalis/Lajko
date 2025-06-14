@@ -29,9 +29,11 @@ export interface Thesis {
   id: number;
   title: string;
   description: string;
+  pdfUrl?: string;
   status: ThesisStatus;
   facultyId: number;
   faculty: User;
+  supervisingFaculty: User[];
   selectedBy: User[];
   assignedToId?: number;
   assignedTo?: User;

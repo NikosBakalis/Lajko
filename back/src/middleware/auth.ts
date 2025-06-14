@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { UserRole } from '@prisma/client';
 
-interface AuthRequest extends Request {
+type UserRole = 'STUDENT' | 'FACULTY' | 'SECRETARY';
+
+export interface AuthenticatedRequest extends Request {
   user?: {
     id: number;
     role: UserRole;
@@ -15,7 +16,7 @@ export const generateToken = (userId: number, role: UserRole): string => {
   return jwt.sign({ id: userId, role }, JWT_SECRET, { expiresIn: '24h' });
 };
 
-export const authenticate = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const authenticate = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
@@ -34,7 +35,7 @@ export const authenticate = (req: AuthRequest, res: Response, next: NextFunction
 };
 
 export const authorize = (roles: UserRole[]) => {
-  return (req: AuthRequest, res: Response, next: NextFunction) => {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Not authenticated' });
     }

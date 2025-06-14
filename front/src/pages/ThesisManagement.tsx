@@ -10,6 +10,7 @@ import {
   Box,
   Alert,
 } from '@mui/material';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { Thesis, User } from '../types';
@@ -21,6 +22,7 @@ export const ThesisManagement: React.FC = () => {
   const [assignedThesis, setAssignedThesis] = useState<Thesis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pdfPreview, setPdfPreview] = useState<{ [key: number]: boolean }>({});
 
   const loadData = useCallback(async () => {
     try {
@@ -189,6 +191,36 @@ export const ThesisManagement: React.FC = () => {
                         <Typography variant="body1">
                           {thesis.description}
                         </Typography>
+                        {thesis.pdfUrl && (
+                          <Box sx={{ mt: 2 }}>
+                            <Button
+                              variant="outlined"
+                              startIcon={<PictureAsPdfIcon />}
+                              href={`${api.defaults.baseURL}${thesis.pdfUrl}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              sx={{ mb: 1 }}
+                            >
+                              View PDF
+                            </Button>
+                            <Button
+                              variant="text"
+                              onClick={() => setPdfPreview(prev => ({ ...prev, [thesis.id]: !prev[thesis.id] }))}
+                              sx={{ ml: 2 }}
+                            >
+                              {pdfPreview[thesis.id] ? 'Hide Preview' : 'Preview PDF'}
+                            </Button>
+                            {pdfPreview[thesis.id] && (
+                              <iframe
+                                src={`${api.defaults.baseURL}${thesis.pdfUrl}`}
+                                width="100%"
+                                height="500px"
+                                style={{ border: '1px solid #ccc', borderRadius: 4, marginTop: 8 }}
+                                title={`Thesis PDF ${thesis.id}`}
+                              />
+                            )}
+                          </Box>
+                        )}
                       </CardContent>
                       <CardActions>
                         <Button 

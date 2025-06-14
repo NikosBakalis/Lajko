@@ -36,6 +36,7 @@ model User {
   landlinePhone  String?
   // Thesis relationships
   facultyTheses  Thesis[] @relation("FacultyTheses")
+  supervisingTheses Thesis[] @relation("SupervisingFaculty")
   selectedTheses Thesis[] @relation("StudentSelections")
   assignedThesis Thesis?  @relation("AssignedThesis")
   createdAt      DateTime @default(now())
@@ -46,9 +47,11 @@ model Thesis {
   id             Int      @id @default(autoincrement())
   title          String
   description    String
+  pdfUrl         String?  // Optional field for PDF attachment
   status         ThesisStatus @default(OPEN)
   facultyId      Int
   faculty        User     @relation("FacultyTheses", fields: [facultyId], references: [id])
+  supervisingFaculty User[] @relation("SupervisingFaculty")
   selectedBy     User[]   @relation("StudentSelections")
   assignedToId   Int?     @unique
   assignedTo     User?    @relation("AssignedThesis", fields: [assignedToId], references: [id])
