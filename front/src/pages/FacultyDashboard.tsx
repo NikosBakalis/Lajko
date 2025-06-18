@@ -23,6 +23,7 @@ import {
   CardContent,
   Divider,
   Autocomplete,
+  Rating,
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
@@ -31,6 +32,7 @@ import UploadIcon from '@mui/icons-material/Upload';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import GradeIcon from '@mui/icons-material/Grade';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -82,7 +84,7 @@ export const FacultyDashboard: React.FC = () => {
   const [newThesis, setNewThesis] = useState({ title: '', description: '' });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [tabValue, setTabValue] = useState(0);
-  const [pdfPreview, setPdfPreview] = useState<{ [key: number]: boolean }>({});
+  const [pdfPreview, setPdfPreview] = useState<{ [key: string]: boolean }>({});
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingThesis, setEditingThesis] = useState<Thesis | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -90,6 +92,10 @@ export const FacultyDashboard: React.FC = () => {
   const [facultyMembers, setFacultyMembers] = useState<User[]>([]);
   const [selectedSupervisors, setSelectedSupervisors] = useState<User[]>([]);
   const [pendingInvitations, setPendingInvitations] = useState<Thesis[]>([]);
+  const [gradingDialogOpen, setGradingDialogOpen] = useState(false);
+  const [thesisToGrade, setThesisToGrade] = useState<Thesis | null>(null);
+  const [grade, setGrade] = useState<number>(0);
+  const [grading, setGrading] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -97,7 +103,14 @@ export const FacultyDashboard: React.FC = () => {
       setError(null);
       const response = await api.get<Thesis[]>('/theses');
       const theses = response.data;
-      const facultyTheses = theses.filter(t => t.facultyId === user?.id);
+      
+      // Filter theses where faculty is either the main faculty member or a supervising faculty member
+      const facultyTheses = theses.filter(t => 
+        t.facultyId === user?.id || 
+        t.supervisingFaculty.some((faculty: any) => 
+          faculty.id === user?.id && faculty.status === 'ACCEPTED'
+        )
+      );
       setMyTheses(facultyTheses);
 
       // Load faculty members for supervisor selection
@@ -230,6 +243,72 @@ export const FacultyDashboard: React.FC = () => {
     }
   };
 
+  const handleGradeThesis = async () => {
+    if (!thesisToGrade) return;
+
+    try {
+      setGrading(true);
+      setError(null);
+      
+      await api.post(`/theses/${thesisToGrade.id}/grade`, { mark: grade });
+      
+      setGradingDialogOpen(false);
+      setThesisToGrade(null);
+      setGrade(0);
+      await loadData();
+    } catch (err) {
+      setError('Failed to grade thesis. Please try again later.');
+      console.error('Error grading thesis:', err);
+    } finally {
+      setGrading(false);
+    }
+  };
+
+  const canGradeThesis = (thesis: Thesis) => {
+    if (!user || thesis.status !== 'ASSIGNED' || !thesis.studentPdfUrl) return false;
+    
+    // Main faculty can always grade
+    if (thesis.facultyId === user.id) return true;
+    
+    // Check if user is an accepted supervisor
+    return thesis.supervisingFaculty.some((faculty: any) => 
+      faculty.id === user.id && faculty.status === 'ACCEPTED'
+    );
+  };
+
+  const getFacultyRole = (thesis: Thesis) => {
+    if (!user) return null;
+    
+    if (thesis.facultyId === user.id) return 'MAIN_FACULTY';
+    
+    const supervisor = thesis.supervisingFaculty.find((faculty: any) => 
+      faculty.id === user.id && faculty.status === 'ACCEPTED'
+    );
+    
+    return supervisor ? 'SUPERVISOR' : null;
+  };
+
+  const hasGraded = (thesis: Thesis) => {
+    if (!user) return false;
+    
+    if (thesis.facultyId === user.id) {
+      return thesis.mainFacultyMark !== null && thesis.mainFacultyMark !== undefined;
+    }
+    
+    // For supervisors, check if they've already graded
+    const supervisorIndex = thesis.supervisingFaculty.findIndex((faculty: any) => 
+      faculty.id === user.id && faculty.status === 'ACCEPTED'
+    );
+    
+    if (supervisorIndex === 0) {
+      return thesis.supervisor1Mark !== null && thesis.supervisor1Mark !== undefined;
+    } else if (supervisorIndex === 1) {
+      return thesis.supervisor2Mark !== null && thesis.supervisor2Mark !== undefined;
+    }
+    
+    return false;
+  };
+
   if (loading) {
     return (
       <Container>
@@ -305,26 +384,30 @@ export const FacultyDashboard: React.FC = () => {
                       >
                         {thesis.status}
                       </Typography>
-                      <Button
-                        startIcon={<EditIcon />}
-                        onClick={() => {
-                          setEditingThesis(thesis);
-                          setSelectedSupervisors(thesis.supervisingFaculty || []);
-                          setEditDialogOpen(true);
-                        }}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        startIcon={<DeleteIcon />}
-                        color="error"
-                        onClick={() => {
-                          setThesisToDelete(thesis.id);
-                          setDeleteConfirmOpen(true);
-                        }}
-                      >
-                        Delete
-                      </Button>
+                      {thesis.facultyId === user?.id && (
+                        <>
+                          <Button
+                            startIcon={<EditIcon />}
+                            onClick={() => {
+                              setEditingThesis(thesis);
+                              setSelectedSupervisors(thesis.supervisingFaculty || []);
+                              setEditDialogOpen(true);
+                            }}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            startIcon={<DeleteIcon />}
+                            color="error"
+                            onClick={() => {
+                              setThesisToDelete(thesis.id);
+                              setDeleteConfirmOpen(true);
+                            }}
+                          >
+                            Delete
+                          </Button>
+                        </>
+                      )}
                     </Box>
                   </Box>
                   <Typography color="textSecondary" paragraph>
@@ -332,9 +415,104 @@ export const FacultyDashboard: React.FC = () => {
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                     <strong>Faculty:</strong> {thesis.faculty.fullName}
+                    {thesis.facultyId === user?.id && (
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        sx={{
+                          ml: 1,
+                          px: 1,
+                          py: 0.5,
+                          bgcolor: 'primary.main',
+                          color: 'white',
+                          borderRadius: 1,
+                          fontSize: '0.7rem',
+                        }}
+                      >
+                        MAIN FACULTY
+                      </Typography>
+                    )}
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    <strong>Supervising Faculty:</strong> {thesis.supervisingFaculty.map((faculty: any) => faculty.fullName).join(', ') || 'None'}
+                    <strong>Supervising Faculty: </strong> 
+                    {thesis.supervisingFaculty.length > 0 ? (
+                      thesis.supervisingFaculty.map((faculty: any, index: number) => (
+                        <span key={faculty.id}>
+                          {faculty.fullName}
+                          {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{
+                                ml: 1,
+                                px: 1,
+                                py: 0.5,
+                                bgcolor: 'secondary.main',
+                                color: 'white',
+                                borderRadius: 1,
+                                fontSize: '0.7rem',
+                              }}
+                            >
+                              SUPERVISOR
+                            </Typography>
+                          )}
+                          {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{
+                                ml: 1,
+                                px: 1,
+                                py: 0.5,
+                                bgcolor: 'success.main',
+                                color: 'white',
+                                borderRadius: 1,
+                                fontSize: '0.7rem',
+                              }}
+                            >
+                              ACCEPTED
+                            </Typography>
+                          )}
+                          {faculty.status === 'PENDING' && faculty.id !== user?.id && (
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{
+                                ml: 1,
+                                px: 1,
+                                py: 0.5,
+                                bgcolor: 'warning.main',
+                                color: 'white',
+                                borderRadius: 1,
+                                fontSize: '0.7rem',
+                              }}
+                            >
+                              PENDING
+                            </Typography>
+                          )}
+                          {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
+                            <Typography
+                              component="span"
+                              variant="caption"
+                              sx={{
+                                ml: 1,
+                                px: 1,
+                                py: 0.5,
+                                bgcolor: 'error.main',
+                                color: 'white',
+                                borderRadius: 1,
+                                fontSize: '0.7rem',
+                              }}
+                            >
+                              REJECTED
+                            </Typography>
+                          )}
+                          {index < thesis.supervisingFaculty.length - 1 && ', '}
+                        </span>
+                      ))
+                    ) : (
+                      'None'
+                    )}
                   </Typography>
                   {thesis.pdfUrl && (
                     <Box sx={{ mt: 2 }}>
@@ -388,13 +566,15 @@ export const FacultyDashboard: React.FC = () => {
                                 <TableCell>{student.fullName}</TableCell>
                                 <TableCell>{student.email}</TableCell>
                                 <TableCell align="right">
-                                  <Button
-                                    size="small"
-                                    color="primary"
-                                    onClick={() => handleAssignThesis(thesis.id, student.id)}
-                                  >
-                                    Assign Thesis
-                                  </Button>
+                                  {thesis.facultyId === user?.id && thesis.status === 'OPEN' && (
+                                    <Button
+                                      size="small"
+                                      color="primary"
+                                      onClick={() => handleAssignThesis(thesis.id, student.id)}
+                                    >
+                                      Assign Thesis
+                                    </Button>
+                                  )}
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -410,6 +590,97 @@ export const FacultyDashboard: React.FC = () => {
                       <Typography variant="subtitle1">
                         Assigned to: {thesis.assignedTo.fullName}
                       </Typography>
+                    </>
+                  )}
+
+                  {/* Student's Thesis PDF */}
+                  {thesis.studentPdfUrl && (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography variant="subtitle1" gutterBottom>
+                        Student's Thesis PDF
+                      </Typography>
+                      <Box sx={{ mt: 2 }}>
+                        <Button
+                          variant="outlined"
+                          startIcon={<PictureAsPdfIcon />}
+                          href={`${api.defaults.baseURL}${thesis.studentPdfUrl}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          sx={{ mb: 1 }}
+                        >
+                          View Student PDF
+                        </Button>
+                        <Button
+                          variant="text"
+                          onClick={() => setPdfPreview(prev => ({ ...prev, [`student-${thesis.id}`]: !prev[`student-${thesis.id}`] }))}
+                          sx={{ ml: 2 }}
+                        >
+                          {pdfPreview[`student-${thesis.id}`] ? 'Hide Preview' : 'Preview Student PDF'}
+                        </Button>
+                        {pdfPreview[`student-${thesis.id}`] && (
+                          <iframe
+                            src={`${api.defaults.baseURL}${thesis.studentPdfUrl}`}
+                            width="100%"
+                            height="500px"
+                            style={{ border: '1px solid #ccc', borderRadius: 4, marginTop: 8 }}
+                            title={`Student Thesis PDF ${thesis.id}`}
+                          />
+                        )}
+                      </Box>
+                    </>
+                  )}
+
+                  {/* Grading Section */}
+                  {thesis.status === 'ASSIGNED' && thesis.studentPdfUrl && (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography variant="subtitle1" gutterBottom>
+                        Grading
+                      </Typography>
+                      
+                      {/* Marks Display */}
+                      <Box sx={{ mb: 2 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Main Faculty Mark:</strong> {thesis.mainFacultyMark !== null ? `${thesis.mainFacultyMark}/10` : 'Not graded'}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Supervisor 1 Mark:</strong> {thesis.supervisor1Mark !== null ? `${thesis.supervisor1Mark}/10` : 'Not graded'}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          <strong>Supervisor 2 Mark:</strong> {thesis.supervisor2Mark !== null ? `${thesis.supervisor2Mark}/10` : 'Not graded'}
+                        </Typography>
+                        {thesis.finalMark !== null && thesis.finalMark !== undefined && (
+                          <Typography variant="body2" color="primary" sx={{ fontWeight: 'bold', mt: 1 }}>
+                            <strong>Final Mark:</strong> {thesis.finalMark.toFixed(2)}/10
+                          </Typography>
+                        )}
+                      </Box>
+
+                      {/* Grading Button */}
+                      {canGradeThesis(thesis) && !hasGraded(thesis) && (
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          startIcon={<GradeIcon />}
+                          onClick={() => {
+                            setThesisToGrade(thesis);
+                            setGrade(0);
+                            setGradingDialogOpen(true);
+                          }}
+                        >
+                          Grade Thesis
+                        </Button>
+                      )}
+                      
+                      {canGradeThesis(thesis) && hasGraded(thesis) && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+                          <GradeIcon color="success" sx={{ mr: 1 }} />
+                          <Typography color="success.main" fontWeight="bold">
+                            Already Graded
+                          </Typography>
+                        </Box>
+                      )}
                     </>
                   )}
                 </CardContent>
@@ -443,26 +714,30 @@ export const FacultyDashboard: React.FC = () => {
                         >
                           {thesis.status}
                         </Typography>
-                        <Button
-                          startIcon={<EditIcon />}
-                          onClick={() => {
-                            setEditingThesis(thesis);
-                            setSelectedSupervisors(thesis.supervisingFaculty || []);
-                            setEditDialogOpen(true);
-                          }}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          startIcon={<DeleteIcon />}
-                          color="error"
-                          onClick={() => {
-                            setThesisToDelete(thesis.id);
-                            setDeleteConfirmOpen(true);
-                          }}
-                        >
-                          Delete
-                        </Button>
+                        {thesis.facultyId === user?.id && (
+                          <>
+                            <Button
+                              startIcon={<EditIcon />}
+                              onClick={() => {
+                                setEditingThesis(thesis);
+                                setSelectedSupervisors(thesis.supervisingFaculty || []);
+                                setEditDialogOpen(true);
+                              }}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              startIcon={<DeleteIcon />}
+                              color="error"
+                              onClick={() => {
+                                setThesisToDelete(thesis.id);
+                                setDeleteConfirmOpen(true);
+                              }}
+                            >
+                              Delete
+                            </Button>
+                          </>
+                        )}
                       </Box>
                     </Box>
                     <Typography color="textSecondary" paragraph>
@@ -470,9 +745,104 @@ export const FacultyDashboard: React.FC = () => {
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                       <strong>Faculty:</strong> {thesis.faculty.fullName}
+                      {thesis.facultyId === user?.id && (
+                        <Typography
+                          component="span"
+                          variant="caption"
+                          sx={{
+                            ml: 1,
+                            px: 1,
+                            py: 0.5,
+                            bgcolor: 'primary.main',
+                            color: 'white',
+                            borderRadius: 1,
+                            fontSize: '0.7rem',
+                          }}
+                        >
+                          MAIN FACULTY
+                        </Typography>
+                      )}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      <strong>Supervising Faculty:</strong> {thesis.supervisingFaculty.map((faculty: any) => faculty.fullName).join(', ') || 'None'}
+                      <strong>Supervising Faculty: </strong> 
+                      {thesis.supervisingFaculty.length > 0 ? (
+                        thesis.supervisingFaculty.map((faculty: any, index: number) => (
+                          <span key={faculty.id}>
+                            {faculty.fullName}
+                            {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'secondary.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                SUPERVISOR
+                              </Typography>
+                            )}
+                            {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'success.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                ACCEPTED
+                              </Typography>
+                            )}
+                            {faculty.status === 'PENDING' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'warning.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                PENDING
+                              </Typography>
+                            )}
+                            {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'error.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                REJECTED
+                              </Typography>
+                            )}
+                            {index < thesis.supervisingFaculty.length - 1 && ', '}
+                          </span>
+                        ))
+                      ) : (
+                        'None'
+                      )}
                     </Typography>
                     {thesis.pdfUrl && (
                       <Box sx={{ mt: 2 }}>
@@ -526,13 +896,15 @@ export const FacultyDashboard: React.FC = () => {
                                   <TableCell>{student.fullName}</TableCell>
                                   <TableCell>{student.email}</TableCell>
                                   <TableCell align="right">
-                                    <Button
-                                      size="small"
-                                      color="primary"
-                                      onClick={() => handleAssignThesis(thesis.id, student.id)}
-                                    >
-                                      Assign Thesis
-                                    </Button>
+                                    {thesis.facultyId === user?.id && thesis.status === 'OPEN' && (
+                                      <Button
+                                        size="small"
+                                        color="primary"
+                                        onClick={() => handleAssignThesis(thesis.id, student.id)}
+                                      >
+                                        Assign Thesis
+                                      </Button>
+                                    )}
                                   </TableCell>
                                 </TableRow>
                               ))}
@@ -572,26 +944,30 @@ export const FacultyDashboard: React.FC = () => {
                         >
                           {thesis.status}
                         </Typography>
-                        <Button
-                          startIcon={<EditIcon />}
-                          onClick={() => {
-                            setEditingThesis(thesis);
-                            setSelectedSupervisors(thesis.supervisingFaculty || []);
-                            setEditDialogOpen(true);
-                          }}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          startIcon={<DeleteIcon />}
-                          color="error"
-                          onClick={() => {
-                            setThesisToDelete(thesis.id);
-                            setDeleteConfirmOpen(true);
-                          }}
-                        >
-                          Delete
-                        </Button>
+                        {thesis.facultyId === user?.id && (
+                          <>
+                            <Button
+                              startIcon={<EditIcon />}
+                              onClick={() => {
+                                setEditingThesis(thesis);
+                                setSelectedSupervisors(thesis.supervisingFaculty || []);
+                                setEditDialogOpen(true);
+                              }}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              startIcon={<DeleteIcon />}
+                              color="error"
+                              onClick={() => {
+                                setThesisToDelete(thesis.id);
+                                setDeleteConfirmOpen(true);
+                              }}
+                            >
+                              Delete
+                            </Button>
+                          </>
+                        )}
                       </Box>
                     </Box>
                     <Typography color="textSecondary" paragraph>
@@ -599,9 +975,104 @@ export const FacultyDashboard: React.FC = () => {
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                       <strong>Faculty:</strong> {thesis.faculty.fullName}
+                      {thesis.facultyId === user?.id && (
+                        <Typography
+                          component="span"
+                          variant="caption"
+                          sx={{
+                            ml: 1,
+                            px: 1,
+                            py: 0.5,
+                            bgcolor: 'primary.main',
+                            color: 'white',
+                            borderRadius: 1,
+                            fontSize: '0.7rem',
+                          }}
+                        >
+                          MAIN FACULTY
+                        </Typography>
+                      )}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      <strong>Supervising Faculty:</strong> {thesis.supervisingFaculty.map((faculty: any) => faculty.fullName).join(', ') || 'None'}
+                      <strong>Supervising Faculty: </strong> 
+                      {thesis.supervisingFaculty.length > 0 ? (
+                        thesis.supervisingFaculty.map((faculty: any, index: number) => (
+                          <span key={faculty.id}>
+                            {faculty.fullName}
+                            {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'secondary.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                SUPERVISOR
+                              </Typography>
+                            )}
+                            {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'success.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                ACCEPTED
+                              </Typography>
+                            )}
+                            {faculty.status === 'PENDING' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'warning.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                PENDING
+                              </Typography>
+                            )}
+                            {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'error.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                REJECTED
+                              </Typography>
+                            )}
+                            {index < thesis.supervisingFaculty.length - 1 && ', '}
+                          </span>
+                        ))
+                      ) : (
+                        'None'
+                      )}
                     </Typography>
                     {thesis.pdfUrl && (
                       <Box sx={{ mt: 2 }}>
@@ -672,26 +1143,30 @@ export const FacultyDashboard: React.FC = () => {
                         >
                           {thesis.status}
                         </Typography>
-                        <Button
-                          startIcon={<EditIcon />}
-                          onClick={() => {
-                            setEditingThesis(thesis);
-                            setSelectedSupervisors(thesis.supervisingFaculty || []);
-                            setEditDialogOpen(true);
-                          }}
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          startIcon={<DeleteIcon />}
-                          color="error"
-                          onClick={() => {
-                            setThesisToDelete(thesis.id);
-                            setDeleteConfirmOpen(true);
-                          }}
-                        >
-                          Delete
-                        </Button>
+                        {thesis.facultyId === user?.id && (
+                          <>
+                            <Button
+                              startIcon={<EditIcon />}
+                              onClick={() => {
+                                setEditingThesis(thesis);
+                                setSelectedSupervisors(thesis.supervisingFaculty || []);
+                                setEditDialogOpen(true);
+                              }}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              startIcon={<DeleteIcon />}
+                              color="error"
+                              onClick={() => {
+                                setThesisToDelete(thesis.id);
+                                setDeleteConfirmOpen(true);
+                              }}
+                            >
+                              Delete
+                            </Button>
+                          </>
+                        )}
                       </Box>
                     </Box>
                     <Typography color="textSecondary" paragraph>
@@ -699,9 +1174,104 @@ export const FacultyDashboard: React.FC = () => {
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                       <strong>Faculty:</strong> {thesis.faculty.fullName}
+                      {thesis.facultyId === user?.id && (
+                        <Typography
+                          component="span"
+                          variant="caption"
+                          sx={{
+                            ml: 1,
+                            px: 1,
+                            py: 0.5,
+                            bgcolor: 'primary.main',
+                            color: 'white',
+                            borderRadius: 1,
+                            fontSize: '0.7rem',
+                          }}
+                        >
+                          MAIN FACULTY
+                        </Typography>
+                      )}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      <strong>Supervising Faculty:</strong> {thesis.supervisingFaculty.map((faculty: any) => faculty.fullName).join(', ') || 'None'}
+                      <strong>Supervising Faculty: </strong> 
+                      {thesis.supervisingFaculty.length > 0 ? (
+                        thesis.supervisingFaculty.map((faculty: any, index: number) => (
+                          <span key={faculty.id}>
+                            {faculty.fullName}
+                            {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'secondary.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                SUPERVISOR
+                              </Typography>
+                            )}
+                            {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'success.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                ACCEPTED
+                              </Typography>
+                            )}
+                            {faculty.status === 'PENDING' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'warning.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                PENDING
+                              </Typography>
+                            )}
+                            {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'error.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                REJECTED
+                              </Typography>
+                            )}
+                            {index < thesis.supervisingFaculty.length - 1 && ', '}
+                          </span>
+                        ))
+                      ) : (
+                        'None'
+                      )}
                     </Typography>
                     {thesis.pdfUrl && (
                       <Box sx={{ mt: 2 }}>
@@ -992,6 +1562,24 @@ export const FacultyDashboard: React.FC = () => {
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                       <strong>Faculty:</strong> {thesis.faculty.fullName}
                     </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      <strong>Your Role:</strong> 
+                      <Typography
+                        component="span"
+                        variant="caption"
+                        sx={{
+                          ml: 1,
+                          px: 1,
+                          py: 0.5,
+                          bgcolor: 'warning.main',
+                          color: 'white',
+                          borderRadius: 1,
+                          fontSize: '0.7rem',
+                        }}
+                      >
+                        PENDING SUPERVISOR
+                      </Typography>
+                    </Typography>
                     <Box sx={{ mt: 2, display: 'flex', gap: 2 }}>
                       <Button
                         variant="contained"
@@ -1015,6 +1603,90 @@ export const FacultyDashboard: React.FC = () => {
           </Box>
         </Box>
       )}
+
+      {/* Grading Dialog */}
+      <Dialog
+        open={gradingDialogOpen}
+        onClose={() => {
+          setGradingDialogOpen(false);
+          setThesisToGrade(null);
+          setGrade(0);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Grade Thesis</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+            {thesisToGrade && (
+              <>
+                <Typography variant="h6">{thesisToGrade.title}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Student: {thesisToGrade.assignedTo?.fullName}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Your Role: {getFacultyRole(thesisToGrade) === 'MAIN_FACULTY' ? 'Main Faculty' : 'Supervisor'}
+                </Typography>
+                
+                <Divider sx={{ my: 2 }} />
+                
+                <Typography variant="subtitle1" gutterBottom>
+                  Rate the thesis (0-10)
+                </Typography>
+                
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Rating
+                    value={grade}
+                    onChange={(event, newValue) => {
+                      setGrade(newValue || 0);
+                    }}
+                    max={10}
+                    precision={0.5}
+                    size="large"
+                  />
+                  <Typography variant="h6" color="primary">
+                    {grade}/10
+                  </Typography>
+                </Box>
+                
+                <TextField
+                  type="number"
+                  label="Mark"
+                  value={grade}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value);
+                    if (value >= 0 && value <= 10) {
+                      setGrade(value);
+                    }
+                  }}
+                  inputProps={{
+                    min: 0,
+                    max: 10,
+                    step: 0.5,
+                  }}
+                  fullWidth
+                />
+              </>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setGradingDialogOpen(false);
+            setThesisToGrade(null);
+            setGrade(0);
+          }}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleGradeThesis} 
+            variant="contained"
+            disabled={grading || grade === 0}
+          >
+            {grading ? 'Grading...' : 'Submit Grade'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

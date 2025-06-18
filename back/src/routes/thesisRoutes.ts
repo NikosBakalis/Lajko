@@ -75,6 +75,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction) => {
       title: thesis.title,
       description: thesis.description,
       pdfUrl: thesis.pdfUrl,
+      studentPdfUrl: thesis.studentPdfUrl,
       status: thesis.status,
       facultyId: thesis.facultyId,
       faculty: thesis.faculty,
@@ -89,6 +90,10 @@ router.get('/', (req: Request, res: Response, next: NextFunction) => {
       assignedToId: thesis.assignedToId,
       assignedTo: thesis.assignedTo,
       selectedBy: thesis.selectedBy,
+      mainFacultyMark: thesis.mainFacultyMark,
+      supervisor1Mark: thesis.supervisor1Mark,
+      supervisor2Mark: thesis.supervisor2Mark,
+      finalMark: thesis.finalMark,
     }));
 
     res.json(formattedTheses);
@@ -114,6 +119,14 @@ router.post('/', upload.single('pdf'), (req: Request, res: Response, next: NextF
   }
 
   const { title, description, supervisingFacultyIds } = req.body;
+  let parsedSupervisingFacultyIds = supervisingFacultyIds;
+  if (typeof supervisingFacultyIds === 'string') {
+    try {
+      parsedSupervisingFacultyIds = JSON.parse(supervisingFacultyIds);
+    } catch (e) {
+      parsedSupervisingFacultyIds = [];
+    }
+  }
   const pdfFile = (req as any).file;
 
   if (!title || !description) {
@@ -144,8 +157,8 @@ router.post('/', upload.single('pdf'), (req: Request, res: Response, next: NextF
       const thesisId = thesis[0].id;
 
       // Add supervising faculty members if provided
-      if (supervisingFacultyIds && Array.isArray(supervisingFacultyIds)) {
-        for (const facultyId of supervisingFacultyIds) {
+      if (parsedSupervisingFacultyIds && Array.isArray(parsedSupervisingFacultyIds) && parsedSupervisingFacultyIds.length > 0) {
+        for (const facultyId of parsedSupervisingFacultyIds) {
           // Check that the user is a faculty member
           const facultyUser = await tx.$queryRaw`SELECT * FROM "User" WHERE id = ${facultyId} AND role = 'FACULTY'`;
           if (!facultyUser || !Array.isArray(facultyUser) || facultyUser.length === 0) {
@@ -366,6 +379,18 @@ router.put('/:id', upload.single('pdf'), (req: Request, res: Response, next: Nex
         WHERE id = ${thesisId} AND "facultyId" = ${authReq.user!.id}
       `;
 
+      // Get existing supervising faculty relationships to preserve their statuses
+      const existingSupervisingFaculty = await tx.$queryRaw`
+        SELECT facultyId, status FROM "SupervisingFaculty" WHERE thesisId = ${thesisId}
+      `;
+      
+      const existingStatuses = new Map();
+      if (Array.isArray(existingSupervisingFaculty)) {
+        existingSupervisingFaculty.forEach((item: any) => {
+          existingStatuses.set(item.facultyId, item.status);
+        });
+      }
+
       // Clear existing supervising faculty relationships
       await tx.$executeRaw`DELETE FROM "SupervisingFaculty" WHERE thesisId = ${thesisId}`;
 
@@ -377,9 +402,13 @@ router.put('/:id', upload.single('pdf'), (req: Request, res: Response, next: Nex
           if (!facultyUser || !Array.isArray(facultyUser) || facultyUser.length === 0) {
             throw new Error('All supervising faculty members must have the FACULTY role');
           }
+          
+          // Preserve existing status or set to PENDING for new faculty members
+          const status = existingStatuses.has(facultyId) ? existingStatuses.get(facultyId) : 'PENDING';
+          
           await tx.$executeRaw`
             INSERT INTO "SupervisingFaculty" (thesisId, facultyId, status)
-            VALUES (${thesisId}, ${facultyId}, 'PENDING')
+            VALUES (${thesisId}, ${facultyId}, ${status})
           `;
         }
       }
@@ -516,6 +545,163 @@ router.post('/:id/reject-invitation', (req: Request, res: Response, next: NextFu
     res.json({ message: 'Invitation rejected successfully' });
   } catch (error) {
     console.error('Error rejecting invitation:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Upload student thesis PDF
+router.post('/:id/upload-student-thesis', upload.single('thesisPdf'), (req: Request, res: Response, next: NextFunction) => {
+  authenticate(req as any, res, next);
+}, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  
+  if (!authReq.user) {
+    return res.status(401).json({ message: 'Authentication required' });
+  }
+
+  // Check if user is a student
+  if (authReq.user.role !== 'STUDENT') {
+    return res.status(403).json({ message: 'Only students can upload thesis PDFs' });
+  }
+
+  const thesisId = parseInt(req.params.id);
+  const pdfFile = (req as any).file;
+
+  if (!pdfFile) {
+    return res.status(400).json({ message: 'PDF file is required' });
+  }
+
+  try {
+    // Check if thesis exists and is assigned to the student
+    const thesis = await prisma.$queryRaw`
+      SELECT * FROM "Thesis" WHERE id = ${thesisId} AND "assignedToId" = ${authReq.user.id}
+    `;
+
+    if (!thesis || !Array.isArray(thesis) || thesis.length === 0) {
+      return res.status(404).json({ message: 'Thesis not found or you are not assigned to it' });
+    }
+
+    // If a student PDF already exists, delete the old one
+    if (thesis[0].studentPdfUrl) {
+      deletePdfFile(thesis[0].studentPdfUrl);
+    }
+
+    // Update thesis with student PDF URL
+    const studentPdfUrl = `/uploads/${pdfFile.filename}`;
+    
+    await prisma.$executeRaw`
+      UPDATE "Thesis" 
+      SET "studentPdfUrl" = ${studentPdfUrl},
+          "updatedAt" = datetime('now')
+      WHERE id = ${thesisId} AND "assignedToId" = ${authReq.user.id}
+    `;
+
+    res.json({ message: 'Student thesis PDF uploaded successfully' });
+  } catch (error) {
+    console.error('Error uploading student thesis PDF:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Grade student thesis
+router.post('/:id/grade', (req: Request, res: Response, next: NextFunction) => {
+  authenticate(req as any, res, next);
+}, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  
+  if (!authReq.user) {
+    return res.status(401).json({ message: 'Authentication required' });
+  }
+
+  // Check if user is faculty
+  if (authReq.user.role !== 'FACULTY') {
+    return res.status(403).json({ message: 'Only faculty members can grade theses' });
+  }
+
+  const thesisId = parseInt(req.params.id);
+  const { mark } = req.body;
+
+  if (mark === undefined || mark < 0 || mark > 10) {
+    return res.status(400).json({ message: 'Mark must be between 0 and 10' });
+  }
+
+  try {
+    // Check if thesis exists and faculty has permission to grade it
+    const thesis = await prisma.$queryRaw`
+      SELECT * FROM "Thesis" WHERE id = ${thesisId}
+    `;
+
+    if (!thesis || !Array.isArray(thesis) || thesis.length === 0) {
+      return res.status(404).json({ message: 'Thesis not found' });
+    }
+
+    const thesisData = thesis[0];
+    const facultyId = authReq.user.id;
+    let updateField = '';
+    let updateValue = mark;
+
+    // Determine which mark field to update based on faculty role
+    if (thesisData.facultyId === facultyId) {
+      // Main faculty
+      updateField = 'mainFacultyMark';
+    } else {
+      // Check if faculty is a supervisor
+      const supervisingFaculty = await prisma.$queryRaw`
+        SELECT * FROM "SupervisingFaculty" 
+        WHERE thesisId = ${thesisId} AND facultyId = ${facultyId} AND status = 'ACCEPTED'
+      `;
+
+      if (!supervisingFaculty || !Array.isArray(supervisingFaculty) || supervisingFaculty.length === 0) {
+        return res.status(403).json({ message: 'You do not have permission to grade this thesis' });
+      }
+
+      // Determine which supervisor slot to use
+      if (thesisData.supervisor1Mark === null) {
+        updateField = 'supervisor1Mark';
+      } else if (thesisData.supervisor2Mark === null) {
+        updateField = 'supervisor2Mark';
+      } else {
+        return res.status(400).json({ message: 'All supervisor marks have already been assigned' });
+      }
+    }
+
+    // Update the mark
+    const updateSql = `
+      UPDATE "Thesis"
+      SET ${updateField} = ?, "updatedAt" = datetime('now')
+      WHERE id = ?
+    `;
+    await prisma.$executeRawUnsafe(updateSql, updateValue, thesisId);
+
+    // Calculate final mark if all marks are available
+    const updatedThesis = await prisma.$queryRaw`
+      SELECT * FROM "Thesis" WHERE id = ${thesisId}
+    `;
+
+    if (updatedThesis && Array.isArray(updatedThesis) && updatedThesis.length > 0) {
+      const updatedThesisData = updatedThesis[0];
+      
+      // Check if all marks are available
+      if (updatedThesisData.mainFacultyMark !== null && 
+          updatedThesisData.supervisor1Mark !== null && 
+          updatedThesisData.supervisor2Mark !== null) {
+        
+        const finalMark = (updatedThesisData.mainFacultyMark + 
+                          updatedThesisData.supervisor1Mark + 
+                          updatedThesisData.supervisor2Mark) / 3;
+
+        await prisma.$executeRaw`
+          UPDATE "Thesis" 
+          SET "finalMark" = ${finalMark},
+              "updatedAt" = datetime('now')
+          WHERE id = ${thesisId}
+        `;
+      }
+    }
+
+    res.json({ message: 'Thesis graded successfully' });
+  } catch (error) {
+    console.error('Error grading thesis:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });

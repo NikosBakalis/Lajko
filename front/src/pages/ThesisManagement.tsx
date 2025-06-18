@@ -9,8 +9,14 @@ import {
   Button,
   Box,
   Alert,
+  Divider,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import UploadIcon from '@mui/icons-material/Upload';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
 import { Thesis, User } from '../types';
@@ -22,7 +28,10 @@ export const ThesisManagement: React.FC = () => {
   const [assignedThesis, setAssignedThesis] = useState<Thesis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [pdfPreview, setPdfPreview] = useState<{ [key: number]: boolean }>({});
+  const [pdfPreview, setPdfPreview] = useState<{ [key: string]: boolean }>({});
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -80,6 +89,33 @@ export const ThesisManagement: React.FC = () => {
     }
   };
 
+  const handleUploadThesis = async () => {
+    if (!selectedFile || !assignedThesis) return;
+
+    try {
+      setUploading(true);
+      setError(null);
+      
+      const formData = new FormData();
+      formData.append('thesisPdf', selectedFile);
+
+      await api.post(`/theses/${assignedThesis.id}/upload-student-thesis`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      setUploadDialogOpen(false);
+      setSelectedFile(null);
+      await loadData();
+    } catch (err) {
+      setError('Failed to upload thesis. Please try again later.');
+      console.error('Error uploading thesis:', err);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleLogout = () => {
     logout();
     window.location.href = '/login';
@@ -129,10 +165,178 @@ export const ThesisManagement: React.FC = () => {
                     <Typography color="textSecondary" gutterBottom>
                       Status: {assignedThesis.status}
                     </Typography>
-                    <Typography variant="body1">
+                    <Typography variant="body1" paragraph>
                       {assignedThesis.description}
                     </Typography>
+                    
+                    {/* Faculty Information */}
+                    <Divider sx={{ my: 2 }} />
+                    <Typography variant="subtitle1" gutterBottom>
+                      Faculty Information
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      <strong>Main Faculty:</strong> {assignedThesis.faculty.fullName}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      <strong>Supervising Faculty:</strong> 
+                      {assignedThesis.supervisingFaculty.length > 0 ? (
+                        assignedThesis.supervisingFaculty.map((faculty: any, index: number) => (
+                          <span key={faculty.id}>
+                            {faculty.fullName}
+                            {faculty.status === 'ACCEPTED' && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'success.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                ACCEPTED
+                              </Typography>
+                            )}
+                            {faculty.status === 'PENDING' && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'warning.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                PENDING
+                              </Typography>
+                            )}
+                            {index < assignedThesis.supervisingFaculty.length - 1 && ', '}
+                          </span>
+                        ))
+                      ) : (
+                        'None'
+                      )}
+                    </Typography>
+
+                    {/* Original Thesis PDF */}
+                    {assignedThesis.pdfUrl && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="subtitle1" gutterBottom>
+                          Original Thesis PDF
+                        </Typography>
+                        <Box sx={{ mt: 2 }}>
+                          <Button
+                            variant="outlined"
+                            startIcon={<PictureAsPdfIcon />}
+                            href={`${api.defaults.baseURL}${assignedThesis.pdfUrl}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{ mb: 1 }}
+                          >
+                            View Original PDF
+                          </Button>
+                          <Button
+                            variant="text"
+                            onClick={() => setPdfPreview(prev => ({ ...prev, [assignedThesis.id]: !prev[assignedThesis.id] }))}
+                            sx={{ ml: 2 }}
+                          >
+                            {pdfPreview[assignedThesis.id] ? 'Hide Preview' : 'Preview Original PDF'}
+                          </Button>
+                          {pdfPreview[assignedThesis.id] && (
+                            <iframe
+                              src={`${api.defaults.baseURL}${assignedThesis.pdfUrl}`}
+                              width="100%"
+                              height="500px"
+                              style={{ border: '1px solid #ccc', borderRadius: 4, marginTop: 8 }}
+                              title={`Original Thesis PDF ${assignedThesis.id}`}
+                            />
+                          )}
+                        </Box>
+                      </>
+                    )}
+
+                    {/* Student's Thesis PDF */}
+                    {assignedThesis.studentPdfUrl && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="subtitle1" gutterBottom>
+                          Your Thesis PDF
+                        </Typography>
+                        <Box sx={{ mt: 2 }}>
+                          <Button
+                            variant="outlined"
+                            startIcon={<PictureAsPdfIcon />}
+                            href={`${api.defaults.baseURL}${assignedThesis.studentPdfUrl}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{ mb: 1 }}
+                          >
+                            View Your PDF
+                          </Button>
+                          <Button
+                            variant="text"
+                            onClick={() => setPdfPreview(prev => ({ ...prev, [`student-${assignedThesis.id}`]: !prev[`student-${assignedThesis.id}`] }))}
+                            sx={{ ml: 2 }}
+                          >
+                            {pdfPreview[`student-${assignedThesis.id}`] ? 'Hide Preview' : 'Preview Your PDF'}
+                          </Button>
+                          {pdfPreview[`student-${assignedThesis.id}`] && (
+                            <iframe
+                              src={`${api.defaults.baseURL}${assignedThesis.studentPdfUrl}`}
+                              width="100%"
+                              height="500px"
+                              style={{ border: '1px solid #ccc', borderRadius: 4, marginTop: 8 }}
+                              title={`Student Thesis PDF ${assignedThesis.id}`}
+                            />
+                          )}
+                        </Box>
+                      </>
+                    )}
+
+                    {/* Grading Section */}
+                    <Divider sx={{ my: 2 }} />
+                    <Typography variant="subtitle1" gutterBottom>
+                      Your Grades
+                    </Typography>
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Main Faculty Mark:</strong> {assignedThesis.mainFacultyMark !== null ? `${assignedThesis.mainFacultyMark}/10` : 'Not graded yet'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Supervisor 1 Mark:</strong> {assignedThesis.supervisor1Mark !== null ? `${assignedThesis.supervisor1Mark}/10` : 'Not graded yet'}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        <strong>Supervisor 2 Mark:</strong> {assignedThesis.supervisor2Mark !== null ? `${assignedThesis.supervisor2Mark}/10` : 'Not graded yet'}
+                      </Typography>
+                      {assignedThesis.finalMark !== null && assignedThesis.finalMark !== undefined && (
+                        <Typography variant="body2" color="primary" sx={{ fontWeight: 'bold', mt: 1 }}>
+                          <strong>Final Mark:</strong> {assignedThesis.finalMark.toFixed(2)}/10
+                        </Typography>
+                      )}
+                      {assignedThesis.mainFacultyMark === null && assignedThesis.supervisor1Mark === null && assignedThesis.supervisor2Mark === null && (
+                        <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                          Your thesis will be graded by the main faculty member and supervisors once they review your submission.
+                        </Typography>
+                      )}
+                    </Box>
                   </CardContent>
+                  <CardActions>
+                    <Button 
+                      variant="contained"
+                      startIcon={<UploadIcon />}
+                      onClick={() => setUploadDialogOpen(true)}
+                    >
+                      Upload Your Thesis PDF
+                    </Button>
+                  </CardActions>
                 </Card>
               ) : (
                 <Typography color="textSecondary">
@@ -155,9 +359,103 @@ export const ThesisManagement: React.FC = () => {
                     <Typography color="textSecondary" gutterBottom>
                       Status: {selectedThesis.status}
                     </Typography>
-                    <Typography variant="body1">
+                    <Typography variant="body1" paragraph>
                       {selectedThesis.description}
                     </Typography>
+                    
+                    {/* Faculty Information */}
+                    <Divider sx={{ my: 2 }} />
+                    <Typography variant="subtitle1" gutterBottom>
+                      Faculty Information
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      <strong>Main Faculty:</strong> {selectedThesis.faculty.fullName}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      <strong>Supervising Faculty:</strong> 
+                      {selectedThesis.supervisingFaculty.length > 0 ? (
+                        selectedThesis.supervisingFaculty.map((faculty: any, index: number) => (
+                          <span key={faculty.id}>
+                            {faculty.fullName}
+                            {faculty.status === 'ACCEPTED' && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'success.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                ACCEPTED
+                              </Typography>
+                            )}
+                            {faculty.status === 'PENDING' && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'warning.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                PENDING
+                              </Typography>
+                            )}
+                            {index < selectedThesis.supervisingFaculty.length - 1 && ', '}
+                          </span>
+                        ))
+                      ) : (
+                        'None'
+                      )}
+                    </Typography>
+
+                    {/* Original Thesis PDF */}
+                    {selectedThesis.pdfUrl && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="subtitle1" gutterBottom>
+                          Original Thesis PDF
+                        </Typography>
+                        <Box sx={{ mt: 2 }}>
+                          <Button
+                            variant="outlined"
+                            startIcon={<PictureAsPdfIcon />}
+                            href={`${api.defaults.baseURL}${selectedThesis.pdfUrl}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{ mb: 1 }}
+                          >
+                            View Original PDF
+                          </Button>
+                          <Button
+                            variant="text"
+                            onClick={() => setPdfPreview(prev => ({ ...prev, [selectedThesis.id]: !prev[selectedThesis.id] }))}
+                            sx={{ ml: 2 }}
+                          >
+                            {pdfPreview[selectedThesis.id] ? 'Hide Preview' : 'Preview Original PDF'}
+                          </Button>
+                          {pdfPreview[selectedThesis.id] && (
+                            <iframe
+                              src={`${api.defaults.baseURL}${selectedThesis.pdfUrl}`}
+                              width="100%"
+                              height="500px"
+                              style={{ border: '1px solid #ccc', borderRadius: 4, marginTop: 8 }}
+                              title={`Original Thesis PDF ${selectedThesis.id}`}
+                            />
+                          )}
+                        </Box>
+                      </>
+                    )}
                   </CardContent>
                   <CardActions>
                     <Button 
@@ -188,9 +486,62 @@ export const ThesisManagement: React.FC = () => {
                     <Card>
                       <CardContent>
                         <Typography variant="h6">{thesis.title}</Typography>
-                        <Typography variant="body1">
+                        <Typography variant="body1" paragraph>
                           {thesis.description}
                         </Typography>
+                        
+                        {/* Faculty Information */}
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                          <strong>Main Faculty:</strong> {thesis.faculty.fullName}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                          <strong>Supervising Faculty:</strong> 
+                          {thesis.supervisingFaculty.length > 0 ? (
+                            thesis.supervisingFaculty.map((faculty: any, index: number) => (
+                              <span key={faculty.id}>
+                                {faculty.fullName}
+                                {faculty.status === 'ACCEPTED' && (
+                                  <Typography
+                                    component="span"
+                                    variant="caption"
+                                    sx={{
+                                      ml: 1,
+                                      px: 1,
+                                      py: 0.5,
+                                      bgcolor: 'success.main',
+                                      color: 'white',
+                                      borderRadius: 1,
+                                      fontSize: '0.7rem',
+                                    }}
+                                  >
+                                    ACCEPTED
+                                  </Typography>
+                                )}
+                                {faculty.status === 'PENDING' && (
+                                  <Typography
+                                    component="span"
+                                    variant="caption"
+                                    sx={{
+                                      ml: 1,
+                                      px: 1,
+                                      py: 0.5,
+                                      bgcolor: 'warning.main',
+                                      color: 'white',
+                                      borderRadius: 1,
+                                      fontSize: '0.7rem',
+                                    }}
+                                  >
+                                    PENDING
+                                  </Typography>
+                                )}
+                                {index < thesis.supervisingFaculty.length - 1 && ', '}
+                              </span>
+                            ))
+                          ) : (
+                            'None'
+                          )}
+                        </Typography>
+
                         {thesis.pdfUrl && (
                           <Box sx={{ mt: 2 }}>
                             <Button
@@ -239,6 +590,64 @@ export const ThesisManagement: React.FC = () => {
           </Box>
         </Box>
       </Box>
+
+      {/* Upload Thesis PDF Dialog */}
+      <Dialog
+        open={uploadDialogOpen}
+        onClose={() => {
+          setUploadDialogOpen(false);
+          setSelectedFile(null);
+        }}
+      >
+        <DialogTitle>Upload Your Thesis PDF</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 2 }}>
+            <Box>
+              <input
+                accept="application/pdf"
+                style={{ display: 'none' }}
+                id="student-thesis-upload"
+                type="file"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    setSelectedFile(file);
+                  }
+                }}
+              />
+              <label htmlFor="student-thesis-upload">
+                <Button
+                  variant="outlined"
+                  component="span"
+                  startIcon={<UploadIcon />}
+                >
+                  Choose PDF File
+                </Button>
+              </label>
+              {selectedFile && (
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  Selected file: {selectedFile.name}
+                </Typography>
+              )}
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setUploadDialogOpen(false);
+            setSelectedFile(null);
+          }}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleUploadThesis} 
+            variant="contained"
+            disabled={!selectedFile || uploading}
+          >
+            {uploading ? 'Uploading...' : 'Upload Thesis'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

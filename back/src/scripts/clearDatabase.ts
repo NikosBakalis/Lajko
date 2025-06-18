@@ -19,7 +19,7 @@ async function clearDatabase() {
 
     // Clear supervising faculty relationships
     console.log('Clearing supervising faculty relationships...');
-    await prisma.$executeRaw`DELETE FROM "_SupervisingFaculty"`;
+    await prisma.supervisingFaculty.deleteMany();
 
     // Then delete all theses
     console.log('Deleting theses...');

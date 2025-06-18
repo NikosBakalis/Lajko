@@ -30,6 +30,7 @@ export interface Thesis {
   title: string;
   description: string;
   pdfUrl?: string;
+  studentPdfUrl?: string;
   status: ThesisStatus;
   facultyId: number;
   faculty: User;
@@ -37,6 +38,10 @@ export interface Thesis {
   selectedBy: User[];
   assignedToId?: number;
   assignedTo?: User;
+  mainFacultyMark?: number;
+  supervisor1Mark?: number;
+  supervisor2Mark?: number;
+  finalMark?: number;
   createdAt: string;
   updatedAt: string;
 }
