@@ -10,19 +10,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  STUDENT
-  FACULTY
-  SECRETARY
-}
-
-enum ThesisStatus {
-  OPEN
-  ASSIGNED
-  COMPLETED
-  CANCELLED
-}
-
 model User {
   id                Int      @id @default(autoincrement())
   username          String   @unique
@@ -72,6 +59,7 @@ model SupervisingFaculty {
   status     String @default("PENDING")
   invitedBy  User?   @relation("StudentInvitations", fields: [invitedById], references: [id])
   invitedById Int?
+  acceptedAt DateTime?
 
   @@id([thesisId, facultyId])
 }

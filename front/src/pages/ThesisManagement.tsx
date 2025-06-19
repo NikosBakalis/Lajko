@@ -75,7 +75,7 @@ export const ThesisManagement: React.FC = () => {
       setFacultyMembers(facultyResponse.data);
     };
     loadFaculty();
-  }, [user?.id]);
+  }, [user?.id, loadData]);
 
   const handleSelectThesis = async (thesisId: number) => {
     try {
@@ -227,7 +227,7 @@ export const ThesisManagement: React.FC = () => {
                                   fontSize: '0.7rem',
                                 }}
                               >
-                                ACCEPTED
+                                SUPERVISOR
                               </Typography>
                             )}
                             {faculty.status === 'PENDING' && (
@@ -245,6 +245,15 @@ export const ThesisManagement: React.FC = () => {
                                 }}
                               >
                                 PENDING
+                              </Typography>
+                            )}
+                            {faculty.status === 'REJECTED' && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'error.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
+                              >
+                                REJECTED
                               </Typography>
                             )}
                             {index < assignedThesis.supervisingFaculty.length - 1 && ', '}
@@ -351,11 +360,65 @@ export const ThesisManagement: React.FC = () => {
                           <strong>Final Mark:</strong> {assignedThesis.finalMark.toFixed(2)}/10
                         </Typography>
                       )}
-                      {assignedThesis.mainFacultyMark === null && assignedThesis.supervisor1Mark === null && assignedThesis.supervisor2Mark === null && (
-                        <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
-                          Your thesis will be graded by the main faculty member and supervisors once they review your submission.
-                        </Typography>
-                      )}
+                      {(() => {
+                        const acceptedSupervisors = assignedThesis.supervisingFaculty.filter((sf: any) => sf.status === 'ACCEPTED');
+                        const hasMainFacultyMark = assignedThesis.mainFacultyMark !== null;
+                        const hasSupervisor1Mark = assignedThesis.supervisor1Mark !== null;
+                        const hasSupervisor2Mark = assignedThesis.supervisor2Mark !== null;
+                        
+                        if (assignedThesis.status === 'COMPLETED') {
+                          return (
+                            <Typography variant="body2" color="success.main" sx={{ fontWeight: 'bold', mt: 1 }}>
+                              ✓ Thesis completed and graded!
+                            </Typography>
+                          );
+                        } else if (acceptedSupervisors.length === 0) {
+                          return (
+                            <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                              Your thesis will be graded by the main faculty member once supervisors accept invitations and review your submission.
+                            </Typography>
+                          );
+                        } else if (acceptedSupervisors.length === 1) {
+                          if (hasMainFacultyMark && hasSupervisor1Mark) {
+                            return (
+                              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                                All required graders have graded. Final mark will be calculated soon.
+                              </Typography>
+                            );
+                          } else {
+                            return (
+                              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                                Waiting for {!hasMainFacultyMark ? 'main faculty' : 'supervisor'} to grade your thesis.
+                              </Typography>
+                            );
+                          }
+                        } else if (acceptedSupervisors.length === 2) {
+                          if (hasMainFacultyMark && hasSupervisor1Mark && hasSupervisor2Mark) {
+                            return (
+                              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                                All required graders have graded. Final mark will be calculated soon.
+                              </Typography>
+                            );
+                          } else {
+                            const missingGraders = [];
+                            if (!hasMainFacultyMark) missingGraders.push('main faculty');
+                            if (!hasSupervisor1Mark) missingGraders.push('supervisor 1');
+                            if (!hasSupervisor2Mark) missingGraders.push('supervisor 2');
+                            
+                            return (
+                              <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                                Waiting for {missingGraders.join(' and ')} to grade your thesis.
+                              </Typography>
+                            );
+                          }
+                        }
+                        
+                        return (
+                          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                            Your thesis will be graded by the main faculty member and supervisors once they review your submission.
+                          </Typography>
+                        );
+                      })()}
                     </Box>
 
                     {/* Invite Supervisors Section */}
@@ -365,77 +428,88 @@ export const ThesisManagement: React.FC = () => {
                         <Typography variant="subtitle1" gutterBottom>
                           Invite Supervisors
                         </Typography>
-                        {assignedThesis.supervisingFaculty.length < 2 ? (
-                          <Box sx={{ mb: 2 }}>
-                            <Autocomplete
-                              multiple={false}
-                              options={facultyMembers.filter(f => 
-                                f.id !== assignedThesis.facultyId && 
-                                !assignedThesis.supervisingFaculty.some((sf: any) => sf.id === f.id)
+                        {(() => {
+                          const acceptedSupervisors = assignedThesis.supervisingFaculty.filter((sf: any) => sf.status === 'ACCEPTED');
+                          const canInviteMore = acceptedSupervisors.length < 2;
+                          
+                          return (
+                            <>
+                              {canInviteMore ? (
+                                <Box sx={{ mb: 2 }}>
+                                  <Autocomplete
+                                    multiple={false}
+                                    options={facultyMembers.filter(f => 
+                                      f.id !== assignedThesis.facultyId && 
+                                      !assignedThesis.supervisingFaculty.some((sf: any) => sf.id === f.id)
+                                    )}
+                                    getOptionLabel={(option) => option.fullName}
+                                    value={selectedSupervisorToInvite}
+                                    onChange={(_, newValue) => setSelectedSupervisorToInvite(newValue)}
+                                    renderInput={(params) => (
+                                      <TextField
+                                        {...params}
+                                        label="Select Faculty to Invite"
+                                        helperText="You can invite as many supervisors as you want. Only the first two who accept will become supervisors."
+                                      />
+                                    )}
+                                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                                  />
+                                  <Button
+                                    variant="contained"
+                                    sx={{ mt: 1 }}
+                                    disabled={!selectedSupervisorToInvite}
+                                    onClick={handleInviteSupervisor}
+                                  >
+                                    Invite Supervisor
+                                  </Button>
+                                </Box>
+                              ) : (
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                  You have reached the maximum number of supervisors (2). No more invitations can be sent.
+                                </Typography>
                               )}
-                              getOptionLabel={(option) => option.fullName}
-                              value={selectedSupervisorToInvite}
-                              onChange={(_, newValue) => setSelectedSupervisorToInvite(newValue)}
-                              renderInput={(params) => (
-                                <TextField
-                                  {...params}
-                                  label="Select Faculty to Invite"
-                                  helperText="You can invite up to 2 supervisors."
-                                />
-                              )}
-                              isOptionEqualToValue={(option, value) => option.id === value.id}
-                            />
-                            <Button
-                              variant="contained"
-                              sx={{ mt: 1 }}
-                              disabled={!selectedSupervisorToInvite}
-                              onClick={handleInviteSupervisor}
-                            >
-                              Invite Supervisor
-                            </Button>
-                          </Box>
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">
-                            You have invited the maximum number of supervisors.
-                          </Typography>
-                        )}
+                            </>
+                          );
+                        })()}
                         <Box sx={{ mt: 2 }}>
                           <Typography variant="body2" color="text.secondary">
-                            <strong>Invited Supervisors:</strong>
+                            <strong>Invited Supervisors: </strong>
                             {assignedThesis.supervisingFaculty.length > 0 ? (
-                              assignedThesis.supervisingFaculty.map((faculty: any, index: number) => (
-                                <span key={faculty.id}>
-                                  {faculty.fullName}
-                                  {faculty.status === 'ACCEPTED' && (
-                                    <Typography
-                                      component="span"
-                                      variant="caption"
-                                      sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'success.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
-                                    >
-                                      ACCEPTED
-                                    </Typography>
-                                  )}
-                                  {faculty.status === 'PENDING' && (
-                                    <Typography
-                                      component="span"
-                                      variant="caption"
-                                      sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'warning.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
-                                    >
-                                      PENDING
-                                    </Typography>
-                                  )}
-                                  {faculty.status === 'REJECTED' && (
-                                    <Typography
-                                      component="span"
-                                      variant="caption"
-                                      sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'error.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
-                                    >
-                                      REJECTED
-                                    </Typography>
-                                  )}
-                                  {index < assignedThesis.supervisingFaculty.length - 1 && ', '}
-                                </span>
-                              ))
+                              assignedThesis.supervisingFaculty.map((faculty: any, index: number) => {
+                                return (
+                                  <span key={faculty.id}>
+                                    {faculty.fullName}
+                                    {faculty.status === 'ACCEPTED' && (
+                                      <Typography
+                                        component="span"
+                                        variant="caption"
+                                        sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'success.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
+                                      >
+                                        SUPERVISOR
+                                      </Typography>
+                                    )}
+                                    {faculty.status === 'PENDING' && (
+                                      <Typography
+                                        component="span"
+                                        variant="caption"
+                                        sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'warning.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
+                                      >
+                                        PENDING
+                                      </Typography>
+                                    )}
+                                    {faculty.status === 'REJECTED' && (
+                                      <Typography
+                                        component="span"
+                                        variant="caption"
+                                        sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'error.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
+                                      >
+                                        REJECTED
+                                      </Typography>
+                                    )}
+                                    {index < assignedThesis.supervisingFaculty.length - 1 && ', '}
+                                  </span>
+                                );
+                              })
                             ) : (
                               ' None'
                             )}
@@ -507,7 +581,7 @@ export const ThesisManagement: React.FC = () => {
                                   fontSize: '0.7rem',
                                 }}
                               >
-                                ACCEPTED
+                                SUPERVISOR
                               </Typography>
                             )}
                             {faculty.status === 'PENDING' && (
@@ -525,6 +599,15 @@ export const ThesisManagement: React.FC = () => {
                                 }}
                               >
                                 PENDING
+                              </Typography>
+                            )}
+                            {faculty.status === 'REJECTED' && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'error.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
+                              >
+                                REJECTED
                               </Typography>
                             )}
                             {index < selectedThesis.supervisingFaculty.length - 1 && ', '}
@@ -630,7 +713,7 @@ export const ThesisManagement: React.FC = () => {
                                       fontSize: '0.7rem',
                                     }}
                                   >
-                                    ACCEPTED
+                                    SUPERVISOR
                                   </Typography>
                                 )}
                                 {faculty.status === 'PENDING' && (
@@ -648,6 +731,15 @@ export const ThesisManagement: React.FC = () => {
                                     }}
                                   >
                                     PENDING
+                                  </Typography>
+                                )}
+                                {faculty.status === 'REJECTED' && (
+                                  <Typography
+                                    component="span"
+                                    variant="caption"
+                                    sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'error.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
+                                  >
+                                    REJECTED
                                   </Typography>
                                 )}
                                 {index < thesis.supervisingFaculty.length - 1 && ', '}

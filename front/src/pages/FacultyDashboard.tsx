@@ -26,7 +26,7 @@ import {
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../services/api';
-import { Thesis, User } from '../types';
+import { Thesis, ThesisStatus } from '../types';
 import UploadIcon from '@mui/icons-material/Upload';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import EditIcon from '@mui/icons-material/Edit';
@@ -88,8 +88,6 @@ export const FacultyDashboard: React.FC = () => {
   const [editingThesis, setEditingThesis] = useState<Thesis | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [thesisToDelete, setThesisToDelete] = useState<number | null>(null);
-  const [facultyMembers, setFacultyMembers] = useState<User[]>([]);
-  const [selectedSupervisors, setSelectedSupervisors] = useState<User[]>([]);
   const [pendingInvitations, setPendingInvitations] = useState<Thesis[]>([]);
   const [gradingDialogOpen, setGradingDialogOpen] = useState(false);
   const [thesisToGrade, setThesisToGrade] = useState<Thesis | null>(null);
@@ -111,10 +109,6 @@ export const FacultyDashboard: React.FC = () => {
         )
       );
       setMyTheses(facultyTheses);
-
-      // Load faculty members for supervisor selection
-      const facultyResponse = await api.get<User[]>('/users?role=FACULTY');
-      setFacultyMembers(facultyResponse.data.filter(f => f.id !== user?.id));
 
       // Filter pending invitations for the current faculty member
       const invitations = theses.filter((thesis: Thesis) => 
@@ -260,12 +254,12 @@ export const FacultyDashboard: React.FC = () => {
   };
 
   const canGradeThesis = (thesis: Thesis) => {
-    if (!user || thesis.status !== 'ASSIGNED' || !thesis.studentPdfUrl) return false;
+    if (!user || thesis.status !== ThesisStatus.ASSIGNED || !thesis.studentPdfUrl) return false;
     
     // Main faculty can always grade
     if (thesis.facultyId === user.id) return true;
     
-    // Check if user is an accepted supervisor
+    // Check if user is an accepted supervisor (only the first two can accept)
     return thesis.supervisingFaculty.some((faculty: any) => 
       faculty.id === user.id && faculty.status === 'ACCEPTED'
     );
@@ -276,11 +270,21 @@ export const FacultyDashboard: React.FC = () => {
     
     if (thesis.facultyId === user.id) return 'MAIN_FACULTY';
     
-    const supervisor = thesis.supervisingFaculty.find((faculty: any) => 
-      faculty.id === user.id && faculty.status === 'ACCEPTED'
-    );
+    const acceptedSupervisors = thesis.supervisingFaculty
+      .filter((faculty: any) => faculty.status === 'ACCEPTED')
+      .sort((a: any, b: any) => {
+        if (!a.acceptedAt && !b.acceptedAt) return 0;
+        if (!a.acceptedAt) return 1;
+        if (!b.acceptedAt) return -1;
+        return new Date(a.acceptedAt).getTime() - new Date(b.acceptedAt).getTime();
+      });
     
-    return supervisor ? 'SUPERVISOR' : null;
+    const supervisorIndex = acceptedSupervisors.findIndex((faculty: any) => faculty.id === user.id);
+    
+    if (supervisorIndex === 0) return 'SUPERVISOR_1';
+    if (supervisorIndex === 1) return 'SUPERVISOR_2';
+    
+    return null;
   };
 
   const hasGraded = (thesis: Thesis) => {
@@ -290,10 +294,17 @@ export const FacultyDashboard: React.FC = () => {
       return thesis.mainFacultyMark !== null && thesis.mainFacultyMark !== undefined;
     }
     
-    // For supervisors, check if they've already graded
-    const supervisorIndex = thesis.supervisingFaculty.findIndex((faculty: any) => 
-      faculty.id === user.id && faculty.status === 'ACCEPTED'
-    );
+    // For supervisors, check if they've already graded based on their position
+    const acceptedSupervisors = thesis.supervisingFaculty
+      .filter((faculty: any) => faculty.status === 'ACCEPTED')
+      .sort((a: any, b: any) => {
+        if (!a.acceptedAt && !b.acceptedAt) return 0;
+        if (!a.acceptedAt) return 1;
+        if (!b.acceptedAt) return -1;
+        return new Date(a.acceptedAt).getTime() - new Date(b.acceptedAt).getTime();
+      });
+    
+    const supervisorIndex = acceptedSupervisors.findIndex((faculty: any) => faculty.id === user.id);
     
     if (supervisorIndex === 0) {
       return thesis.supervisor1Mark !== null && thesis.supervisor1Mark !== undefined;
@@ -430,80 +441,82 @@ export const FacultyDashboard: React.FC = () => {
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                     <strong>Supervising Faculty: </strong> 
                     {thesis.supervisingFaculty.length > 0 ? (
-                      thesis.supervisingFaculty.map((faculty: any, index: number) => (
-                        <span key={faculty.id}>
-                          {faculty.fullName}
-                          {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              sx={{
-                                ml: 1,
-                                px: 1,
-                                py: 0.5,
-                                bgcolor: 'secondary.main',
-                                color: 'white',
-                                borderRadius: 1,
-                                fontSize: '0.7rem',
-                              }}
-                            >
-                              SUPERVISOR
-                            </Typography>
-                          )}
-                          {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              sx={{
-                                ml: 1,
-                                px: 1,
-                                py: 0.5,
-                                bgcolor: 'success.main',
-                                color: 'white',
-                                borderRadius: 1,
-                                fontSize: '0.7rem',
-                              }}
-                            >
-                              ACCEPTED
-                            </Typography>
-                          )}
-                          {faculty.status === 'PENDING' && faculty.id !== user?.id && (
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              sx={{
-                                ml: 1,
-                                px: 1,
-                                py: 0.5,
-                                bgcolor: 'warning.main',
-                                color: 'white',
-                                borderRadius: 1,
-                                fontSize: '0.7rem',
-                              }}
-                            >
-                              PENDING
-                            </Typography>
-                          )}
-                          {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
-                            <Typography
-                              component="span"
-                              variant="caption"
-                              sx={{
-                                ml: 1,
-                                px: 1,
-                                py: 0.5,
-                                bgcolor: 'error.main',
-                                color: 'white',
-                                borderRadius: 1,
-                                fontSize: '0.7rem',
-                              }}
-                            >
-                              REJECTED
-                            </Typography>
-                          )}
-                          {index < thesis.supervisingFaculty.length - 1 && ', '}
-                        </span>
-                      ))
+                      thesis.supervisingFaculty.map((faculty: any, index: number) => {
+                        return (
+                          <span key={faculty.id}>
+                            {faculty.fullName}
+                            {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'secondary.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                SUPERVISOR
+                              </Typography>
+                            )}
+                            {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'success.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                SUPERVISOR
+                              </Typography>
+                            )}
+                            {faculty.status === 'PENDING' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'warning.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                PENDING
+                              </Typography>
+                            )}
+                            {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                sx={{
+                                  ml: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  bgcolor: 'error.main',
+                                  color: 'white',
+                                  borderRadius: 1,
+                                  fontSize: '0.7rem',
+                                }}
+                              >
+                                REJECTED
+                              </Typography>
+                            )}
+                            {index < thesis.supervisingFaculty.length - 1 && ', '}
+                          </span>
+                        );
+                      })
                     ) : (
                       'None'
                     )}
@@ -560,7 +573,7 @@ export const FacultyDashboard: React.FC = () => {
                                 <TableCell>{student.fullName}</TableCell>
                                 <TableCell>{student.email}</TableCell>
                                 <TableCell align="right">
-                                  {thesis.facultyId === user?.id && thesis.status === 'OPEN' && (
+                                  {thesis.facultyId === user?.id && thesis.status === ThesisStatus.OPEN && (
                                     <Button
                                       size="small"
                                       color="primary"
@@ -626,7 +639,7 @@ export const FacultyDashboard: React.FC = () => {
                   )}
 
                   {/* Grading Section */}
-                  {thesis.status === 'ASSIGNED' && thesis.studentPdfUrl && (
+                  {thesis.status === ThesisStatus.ASSIGNED && thesis.studentPdfUrl && (
                     <>
                       <Divider sx={{ my: 2 }} />
                       <Typography variant="subtitle1" gutterBottom>
@@ -677,6 +690,62 @@ export const FacultyDashboard: React.FC = () => {
                       )}
                     </>
                   )}
+
+                  {/* Status Messages */}
+                  {thesis.status === ThesisStatus.COMPLETED && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="body2" color="success.main" sx={{ fontWeight: 'bold' }}>
+                        ✓ Thesis completed and graded!
+                      </Typography>
+                    </Box>
+                  )}
+                  {thesis.status === ThesisStatus.ASSIGNED && thesis.studentPdfUrl && (() => {
+                    const acceptedSupervisors = thesis.supervisingFaculty.filter((faculty: any) => faculty.status === 'ACCEPTED');
+                    const hasMainFacultyMark = thesis.mainFacultyMark !== null;
+                    const hasSupervisor1Mark = thesis.supervisor1Mark !== null;
+                    const hasSupervisor2Mark = thesis.supervisor2Mark !== null;
+                    
+                    if (acceptedSupervisors.length === 1) {
+                      if (hasMainFacultyMark && hasSupervisor1Mark) {
+                        return (
+                          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: 1 }}>
+                            All required graders have graded. Thesis will be completed soon.
+                          </Typography>
+                        );
+                      } else {
+                        return (
+                          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: 1 }}>
+                            Waiting for {!hasMainFacultyMark ? 'main faculty' : 'supervisor'} to grade.
+                          </Typography>
+                        );
+                      }
+                    } else if (acceptedSupervisors.length === 2) {
+                      if (hasMainFacultyMark && hasSupervisor1Mark && hasSupervisor2Mark) {
+                        return (
+                          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: 1 }}>
+                            All required graders have graded. Thesis will be completed soon.
+                          </Typography>
+                        );
+                      } else {
+                        const missingGraders = [];
+                        if (!hasMainFacultyMark) missingGraders.push('main faculty');
+                        if (!hasSupervisor1Mark) missingGraders.push('supervisor 1');
+                        if (!hasSupervisor2Mark) missingGraders.push('supervisor 2');
+                        
+                        return (
+                          <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: 1 }}>
+                            Waiting for {missingGraders.join(' and ')} to grade.
+                          </Typography>
+                        );
+                      }
+                    }
+                    
+                    return (
+                      <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic', mt: 1 }}>
+                        Waiting for supervisors to accept invitations and grade the thesis.
+                      </Typography>
+                    );
+                  })()}
                 </CardContent>
               </Card>
             ))}
@@ -686,7 +755,7 @@ export const FacultyDashboard: React.FC = () => {
         <TabPanel value={tabValue} index={1}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {myTheses
-              .filter(thesis => thesis.status === 'OPEN')
+              .filter(thesis => thesis.status === ThesisStatus.OPEN)
               .map((thesis) => (
                 <Card key={thesis.id} sx={{ mb: 2 }}>
                   <CardContent>
@@ -759,80 +828,82 @@ export const FacultyDashboard: React.FC = () => {
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                       <strong>Supervising Faculty: </strong> 
                       {thesis.supervisingFaculty.length > 0 ? (
-                        thesis.supervisingFaculty.map((faculty: any, index: number) => (
-                          <span key={faculty.id}>
-                            {faculty.fullName}
-                            {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'secondary.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                SUPERVISOR
-                              </Typography>
-                            )}
-                            {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'success.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                ACCEPTED
-                              </Typography>
-                            )}
-                            {faculty.status === 'PENDING' && faculty.id !== user?.id && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'warning.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                PENDING
-                              </Typography>
-                            )}
-                            {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'error.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                REJECTED
-                              </Typography>
-                            )}
-                            {index < thesis.supervisingFaculty.length - 1 && ', '}
-                          </span>
-                        ))
+                        thesis.supervisingFaculty.map((faculty: any, index: number) => {
+                          return (
+                            <span key={faculty.id}>
+                              {faculty.fullName}
+                              {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'secondary.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  SUPERVISOR
+                                </Typography>
+                              )}
+                              {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'success.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  SUPERVISOR
+                                </Typography>
+                              )}
+                              {faculty.status === 'PENDING' && faculty.id !== user?.id && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'warning.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  PENDING
+                                </Typography>
+                              )}
+                              {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'error.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  REJECTED
+                                </Typography>
+                              )}
+                              {index < thesis.supervisingFaculty.length - 1 && ', '}
+                            </span>
+                          );
+                        })
                       ) : (
                         'None'
                       )}
@@ -889,7 +960,7 @@ export const FacultyDashboard: React.FC = () => {
                                   <TableCell>{student.fullName}</TableCell>
                                   <TableCell>{student.email}</TableCell>
                                   <TableCell align="right">
-                                    {thesis.facultyId === user?.id && thesis.status === 'OPEN' && (
+                                    {thesis.facultyId === user?.id && thesis.status === ThesisStatus.OPEN && (
                                       <Button
                                         size="small"
                                         color="primary"
@@ -915,7 +986,7 @@ export const FacultyDashboard: React.FC = () => {
         <TabPanel value={tabValue} index={2}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {myTheses
-              .filter(thesis => thesis.status === 'ASSIGNED')
+              .filter(thesis => thesis.status === ThesisStatus.ASSIGNED)
               .map((thesis) => (
                 <Card key={thesis.id} sx={{ mb: 2 }}>
                   <CardContent>
@@ -988,80 +1059,82 @@ export const FacultyDashboard: React.FC = () => {
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                       <strong>Supervising Faculty: </strong> 
                       {thesis.supervisingFaculty.length > 0 ? (
-                        thesis.supervisingFaculty.map((faculty: any, index: number) => (
-                          <span key={faculty.id}>
-                            {faculty.fullName}
-                            {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'secondary.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                SUPERVISOR
-                              </Typography>
-                            )}
-                            {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'success.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                ACCEPTED
-                              </Typography>
-                            )}
-                            {faculty.status === 'PENDING' && faculty.id !== user?.id && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'warning.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                PENDING
-                              </Typography>
-                            )}
-                            {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'error.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                REJECTED
-                              </Typography>
-                            )}
-                            {index < thesis.supervisingFaculty.length - 1 && ', '}
-                          </span>
-                        ))
+                        thesis.supervisingFaculty.map((faculty: any, index: number) => {
+                          return (
+                            <span key={faculty.id}>
+                              {faculty.fullName}
+                              {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'secondary.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  SUPERVISOR
+                                </Typography>
+                              )}
+                              {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'success.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  SUPERVISOR
+                                </Typography>
+                              )}
+                              {faculty.status === 'PENDING' && faculty.id !== user?.id && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'warning.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  PENDING
+                                </Typography>
+                              )}
+                              {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'error.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  REJECTED
+                                </Typography>
+                              )}
+                              {index < thesis.supervisingFaculty.length - 1 && ', '}
+                            </span>
+                          );
+                        })
                       ) : (
                         'None'
                       )}
@@ -1113,7 +1186,7 @@ export const FacultyDashboard: React.FC = () => {
         <TabPanel value={tabValue} index={3}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {myTheses
-              .filter(thesis => thesis.status === 'COMPLETED')
+              .filter(thesis => thesis.status === ThesisStatus.COMPLETED)
               .map((thesis) => (
                 <Card key={thesis.id} sx={{ mb: 2 }}>
                   <CardContent>
@@ -1186,80 +1259,82 @@ export const FacultyDashboard: React.FC = () => {
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                       <strong>Supervising Faculty: </strong> 
                       {thesis.supervisingFaculty.length > 0 ? (
-                        thesis.supervisingFaculty.map((faculty: any, index: number) => (
-                          <span key={faculty.id}>
-                            {faculty.fullName}
-                            {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'secondary.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                SUPERVISOR
-                              </Typography>
-                            )}
-                            {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'success.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                ACCEPTED
-                              </Typography>
-                            )}
-                            {faculty.status === 'PENDING' && faculty.id !== user?.id && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'warning.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                PENDING
-                              </Typography>
-                            )}
-                            {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
-                              <Typography
-                                component="span"
-                                variant="caption"
-                                sx={{
-                                  ml: 1,
-                                  px: 1,
-                                  py: 0.5,
-                                  bgcolor: 'error.main',
-                                  color: 'white',
-                                  borderRadius: 1,
-                                  fontSize: '0.7rem',
-                                }}
-                              >
-                                REJECTED
-                              </Typography>
-                            )}
-                            {index < thesis.supervisingFaculty.length - 1 && ', '}
-                          </span>
-                        ))
+                        thesis.supervisingFaculty.map((faculty: any, index: number) => {
+                          return (
+                            <span key={faculty.id}>
+                              {faculty.fullName}
+                              {faculty.id === user?.id && faculty.status === 'ACCEPTED' && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'secondary.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  SUPERVISOR
+                                </Typography>
+                              )}
+                              {faculty.status === 'ACCEPTED' && faculty.id !== user?.id && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'success.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  SUPERVISOR
+                                </Typography>
+                              )}
+                              {faculty.status === 'PENDING' && faculty.id !== user?.id && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'warning.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  PENDING
+                                </Typography>
+                              )}
+                              {faculty.status === 'REJECTED' && faculty.id !== user?.id && (
+                                <Typography
+                                  component="span"
+                                  variant="caption"
+                                  sx={{
+                                    ml: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    bgcolor: 'error.main',
+                                    color: 'white',
+                                    borderRadius: 1,
+                                    fontSize: '0.7rem',
+                                  }}
+                                >
+                                  REJECTED
+                                </Typography>
+                              )}
+                              {index < thesis.supervisingFaculty.length - 1 && ', '}
+                            </span>
+                          );
+                        })
                       ) : (
                         'None'
                       )}
@@ -1576,7 +1651,9 @@ export const FacultyDashboard: React.FC = () => {
                   Student: {thesisToGrade.assignedTo?.fullName}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Your Role: {getFacultyRole(thesisToGrade) === 'MAIN_FACULTY' ? 'Main Faculty' : 'Supervisor'}
+                  Your Role: {getFacultyRole(thesisToGrade) === 'MAIN_FACULTY' ? 'Main Faculty' : 
+                    getFacultyRole(thesisToGrade) === 'SUPERVISOR_1' ? 'Supervisor (1st)' :
+                    getFacultyRole(thesisToGrade) === 'SUPERVISOR_2' ? 'Supervisor (2nd)' : 'Supervisor'}
                 </Typography>
                 
                 <Divider sx={{ my: 2 }} />

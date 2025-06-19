@@ -86,6 +86,7 @@ router.get('/', (req: Request, res: Response, next: NextFunction) => {
         fullName: sf.faculty.fullName,
         role: sf.faculty.role,
         status: sf.status,
+        acceptedAt: sf.acceptedAt,
       })),
       assignedToId: thesis.assignedToId,
       assignedTo: thesis.assignedTo,
@@ -447,14 +448,52 @@ router.post('/:id/accept-invitation', (req: Request, res: Response, next: NextFu
       return res.status(404).json({ message: 'Invitation not found' });
     }
 
-    // Update invitation status to ACCEPTED
+    // Check how many supervisors have already accepted
+    const acceptedSupervisors = await prisma.$queryRaw`
+      SELECT * FROM "SupervisingFaculty" 
+      WHERE thesisId = ${thesisId} AND status = 'ACCEPTED'
+      ORDER BY "acceptedAt" ASC
+    `;
+
+    if (!acceptedSupervisors || !Array.isArray(acceptedSupervisors)) {
+      return res.status(500).json({ message: 'Error retrieving supervising faculty information' });
+    }
+
+    // If already 2 supervisors have accepted, reject this invitation
+    if (acceptedSupervisors.length >= 2) {
+      // Delete the invitation since we already have 2 supervisors
+      await prisma.$executeRaw`
+        DELETE FROM "SupervisingFaculty" 
+        WHERE thesisId = ${thesisId} AND facultyId = ${facultyId}
+      `;
+
+      return res.status(400).json({ 
+        message: 'Cannot accept invitation. This thesis already has 2 supervisors.' 
+      });
+    }
+
+    // Accept the invitation (this will be the 1st or 2nd supervisor)
+    const currentTime = new Date().toISOString();
+    
+    // Update invitation status to ACCEPTED and set acceptedAt timestamp
     await prisma.$executeRaw`
       UPDATE "SupervisingFaculty" 
-      SET status = 'ACCEPTED'
+      SET status = 'ACCEPTED', "acceptedAt" = ${currentTime}
       WHERE thesisId = ${thesisId} AND facultyId = ${facultyId}
     `;
 
-    res.json({ message: 'Invitation accepted successfully' });
+    // If this is the 2nd supervisor, automatically reject all remaining pending invitations
+    if (acceptedSupervisors.length === 1) {
+      await prisma.$executeRaw`
+        DELETE FROM "SupervisingFaculty" 
+        WHERE thesisId = ${thesisId} AND status = 'PENDING'
+      `;
+    }
+    
+    res.json({ 
+      message: 'Invitation accepted successfully',
+      position: acceptedSupervisors.length + 1
+    });
   } catch (error) {
     console.error('Error accepting invitation:', error);
     res.status(500).json({ message: 'Internal server error' });
@@ -603,18 +642,18 @@ router.post('/:id/grade', (req: Request, res: Response, next: NextFunction) => {
       const supervisingFaculty = await prisma.$queryRaw`
         SELECT * FROM "SupervisingFaculty" 
         WHERE thesisId = ${thesisId} AND facultyId = ${facultyId} AND status = 'ACCEPTED'
-        ORDER BY thesisId ASC, facultyId ASC
+        ORDER BY "acceptedAt" ASC
       `;
 
       if (!supervisingFaculty || !Array.isArray(supervisingFaculty) || supervisingFaculty.length === 0) {
         return res.status(403).json({ message: 'You do not have permission to grade this thesis' });
       }
 
-      // Get all supervising faculty for this thesis to determine position
+      // Get all supervising faculty for this thesis ordered by acceptance time
       const allSupervisingFaculty = await prisma.$queryRaw`
         SELECT * FROM "SupervisingFaculty" 
         WHERE thesisId = ${thesisId} AND status = 'ACCEPTED'
-        ORDER BY thesisId ASC, facultyId ASC
+        ORDER BY "acceptedAt" ASC
       `;
 
       if (!allSupervisingFaculty || !Array.isArray(allSupervisingFaculty)) {
@@ -626,6 +665,11 @@ router.post('/:id/grade', (req: Request, res: Response, next: NextFunction) => {
       
       if (supervisorIndex === -1) {
         return res.status(403).json({ message: 'You do not have permission to grade this thesis' });
+      }
+
+      // Only the first two supervisors can grade
+      if (supervisorIndex >= 2) {
+        return res.status(400).json({ message: 'Only the first two supervisors who accepted can grade this thesis' });
       }
 
       // Determine which supervisor slot to use based on position
@@ -660,23 +704,49 @@ router.post('/:id/grade', (req: Request, res: Response, next: NextFunction) => {
     if (updatedThesis && Array.isArray(updatedThesis) && updatedThesis.length > 0) {
       const updatedThesisData = updatedThesis[0];
       
-      // Check if all marks are available
-      if (updatedThesisData.mainFacultyMark !== null && 
-          updatedThesisData.supervisor1Mark !== null && 
-          updatedThesisData.supervisor2Mark !== null) {
-        
-        const finalMark = (updatedThesisData.mainFacultyMark + 
-                          updatedThesisData.supervisor1Mark + 
-                          updatedThesisData.supervisor2Mark) / 3;
+      // Get the first two accepted supervisors
+      const activeSupervisors = await prisma.$queryRaw`
+        SELECT * FROM "SupervisingFaculty" 
+        WHERE thesisId = ${thesisId} AND status = 'ACCEPTED'
+        ORDER BY "acceptedAt" ASC
+        LIMIT 2
+      `;
 
-        // Update final mark and change status to COMPLETED
-        await prisma.$executeRaw`
-          UPDATE "Thesis" 
-          SET "finalMark" = ${finalMark},
-              status = 'COMPLETED',
-              "updatedAt" = datetime('now')
-          WHERE id = ${thesisId}
-        `;
+      if (activeSupervisors && Array.isArray(activeSupervisors)) {
+        // Check if main faculty and both supervisors have graded
+        const hasMainFacultyMark = updatedThesisData.mainFacultyMark !== null;
+        const hasSupervisor1Mark = activeSupervisors.length >= 1 && updatedThesisData.supervisor1Mark !== null;
+        const hasSupervisor2Mark = activeSupervisors.length >= 2 && updatedThesisData.supervisor2Mark !== null;
+        
+        // Only calculate final mark and complete thesis if ALL required graders have graded
+        if (hasMainFacultyMark && hasSupervisor1Mark && hasSupervisor2Mark) {
+          // All three graders have graded - calculate final mark
+          const finalMark = (updatedThesisData.mainFacultyMark + 
+                            updatedThesisData.supervisor1Mark + 
+                            updatedThesisData.supervisor2Mark) / 3;
+
+          // Update final mark and change status to COMPLETED
+          await prisma.$executeRaw`
+            UPDATE "Thesis" 
+            SET "finalMark" = ${finalMark},
+                status = 'COMPLETED',
+                "updatedAt" = datetime('now')
+            WHERE id = ${thesisId}
+          `;
+        } else if (hasMainFacultyMark && hasSupervisor1Mark && activeSupervisors.length === 1) {
+          // Only 1 supervisor accepted and both main faculty and supervisor have graded
+          const finalMark = (updatedThesisData.mainFacultyMark + updatedThesisData.supervisor1Mark) / 2;
+
+          // Update final mark and change status to COMPLETED
+          await prisma.$executeRaw`
+            UPDATE "Thesis" 
+            SET "finalMark" = ${finalMark},
+                status = 'COMPLETED',
+                "updatedAt" = datetime('now')
+            WHERE id = ${thesisId}
+          `;
+        }
+        // If not all required graders have graded, don't complete the thesis yet
       }
     }
 
@@ -728,6 +798,14 @@ router.post('/:id/invite-supervisor', (req: Request, res: Response, next: NextFu
     });
     if (existing) {
       return res.status(400).json({ message: 'This faculty member has already been invited' });
+    }
+
+    // Check if already have 2 accepted supervisors
+    const acceptedSupervisors = await prisma.supervisingFaculty.findMany({
+      where: { thesisId, status: 'ACCEPTED' },
+    });
+    if (acceptedSupervisors.length >= 2) {
+      return res.status(400).json({ message: 'Cannot invite more supervisors. This thesis already has 2 supervisors.' });
     }
 
     // Create invitation

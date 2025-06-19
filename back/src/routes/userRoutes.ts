@@ -170,19 +170,37 @@ router.delete('/:id', (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = Number(req.params.id);
     
-    // First, delete all theses associated with this user (both as faculty and as assigned student)
-    await prisma.thesis.deleteMany({
-      where: {
-        OR: [
-          { facultyId: userId },
-          { assignedToId: userId }
-        ]
-      }
-    });
+    // Use a transaction to ensure all related records are deleted properly
+    await prisma.$transaction(async (tx) => {
+      // Delete supervising faculty relationships where this user is the faculty member
+      await tx.supervisingFaculty.deleteMany({
+        where: { facultyId: userId }
+      });
 
-    // Then delete the user
-    await prisma.user.delete({ 
-      where: { id: userId }
+      // Delete supervising faculty relationships where this user is the inviter
+      await tx.supervisingFaculty.deleteMany({
+        where: { invitedById: userId }
+      });
+
+      // Delete student selections where this user is the student (using raw SQL for many-to-many)
+      await tx.$executeRaw`
+        DELETE FROM "_StudentSelections" WHERE B = ${userId}
+      `;
+
+      // Delete theses where this user is the faculty member
+      await tx.thesis.deleteMany({
+        where: { facultyId: userId }
+      });
+
+      // Delete theses where this user is the assigned student
+      await tx.thesis.deleteMany({
+        where: { assignedToId: userId }
+      });
+
+      // Finally delete the user
+      await tx.user.delete({ 
+        where: { id: userId }
+      });
     });
     
     res.status(204).send();

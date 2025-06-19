@@ -20,9 +20,14 @@ CREATE TABLE "Thesis" (
     "title" TEXT NOT NULL,
     "description" TEXT NOT NULL,
     "pdfUrl" TEXT,
+    "studentPdfUrl" TEXT,
     "status" TEXT NOT NULL DEFAULT 'OPEN',
     "facultyId" INTEGER NOT NULL,
     "assignedToId" INTEGER,
+    "mainFacultyMark" REAL,
+    "supervisor1Mark" REAL,
+    "supervisor2Mark" REAL,
+    "finalMark" REAL,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "Thesis_facultyId_fkey" FOREIGN KEY ("facultyId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -34,10 +39,12 @@ CREATE TABLE "SupervisingFaculty" (
     "thesisId" INTEGER NOT NULL,
     "facultyId" INTEGER NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "invitedById" INTEGER,
 
     PRIMARY KEY ("thesisId", "facultyId"),
     CONSTRAINT "SupervisingFaculty_thesisId_fkey" FOREIGN KEY ("thesisId") REFERENCES "Thesis" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "SupervisingFaculty_facultyId_fkey" FOREIGN KEY ("facultyId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    CONSTRAINT "SupervisingFaculty_facultyId_fkey" FOREIGN KEY ("facultyId") REFERENCES "User" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+    CONSTRAINT "SupervisingFaculty_invitedById_fkey" FOREIGN KEY ("invitedById") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateTable
