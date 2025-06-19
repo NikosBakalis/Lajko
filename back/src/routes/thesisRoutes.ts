@@ -118,15 +118,7 @@ router.post('/', upload.single('pdf'), (req: Request, res: Response, next: NextF
     return res.status(403).json({ message: 'Only faculty members can create theses' });
   }
 
-  const { title, description, supervisingFacultyIds } = req.body;
-  let parsedSupervisingFacultyIds = supervisingFacultyIds;
-  if (typeof supervisingFacultyIds === 'string') {
-    try {
-      parsedSupervisingFacultyIds = JSON.parse(supervisingFacultyIds);
-    } catch (e) {
-      parsedSupervisingFacultyIds = [];
-    }
-  }
+  const { title, description } = req.body;
   const pdfFile = (req as any).file;
 
   if (!title || !description) {
@@ -155,21 +147,6 @@ router.post('/', upload.single('pdf'), (req: Request, res: Response, next: NextF
       }
 
       const thesisId = thesis[0].id;
-
-      // Add supervising faculty members if provided
-      if (parsedSupervisingFacultyIds && Array.isArray(parsedSupervisingFacultyIds) && parsedSupervisingFacultyIds.length > 0) {
-        for (const facultyId of parsedSupervisingFacultyIds) {
-          // Check that the user is a faculty member
-          const facultyUser = await tx.$queryRaw`SELECT * FROM "User" WHERE id = ${facultyId} AND role = 'FACULTY'`;
-          if (!facultyUser || !Array.isArray(facultyUser) || facultyUser.length === 0) {
-            throw new Error('All supervising faculty members must have the FACULTY role');
-          }
-          await tx.$executeRaw`
-            INSERT INTO "SupervisingFaculty" (thesisId, facultyId, status)
-            VALUES (${thesisId}, ${facultyId}, 'PENDING')
-          `;
-        }
-      }
     });
 
     res.status(201).json({ message: 'Thesis created successfully' });
@@ -336,15 +313,7 @@ router.put('/:id', upload.single('pdf'), (req: Request, res: Response, next: Nex
   }
 
   const thesisId = parseInt(req.params.id);
-  const { title, description, supervisingFacultyIds } = req.body;
-  let parsedSupervisingFacultyIds = supervisingFacultyIds;
-  if (typeof supervisingFacultyIds === 'string') {
-    try {
-      parsedSupervisingFacultyIds = JSON.parse(supervisingFacultyIds);
-    } catch (e) {
-      parsedSupervisingFacultyIds = [];
-    }
-  }
+  const { title, description } = req.body;
   const pdfFile = (req as any).file;
 
   if (!title || !description) {
@@ -378,40 +347,6 @@ router.put('/:id', upload.single('pdf'), (req: Request, res: Response, next: Nex
             "updatedAt" = datetime('now')
         WHERE id = ${thesisId} AND "facultyId" = ${authReq.user!.id}
       `;
-
-      // Get existing supervising faculty relationships to preserve their statuses
-      const existingSupervisingFaculty = await tx.$queryRaw`
-        SELECT facultyId, status FROM "SupervisingFaculty" WHERE thesisId = ${thesisId}
-      `;
-      
-      const existingStatuses = new Map();
-      if (Array.isArray(existingSupervisingFaculty)) {
-        existingSupervisingFaculty.forEach((item: any) => {
-          existingStatuses.set(item.facultyId, item.status);
-        });
-      }
-
-      // Clear existing supervising faculty relationships
-      await tx.$executeRaw`DELETE FROM "SupervisingFaculty" WHERE thesisId = ${thesisId}`;
-
-      // Add new supervising faculty members if provided
-      if (parsedSupervisingFacultyIds && Array.isArray(parsedSupervisingFacultyIds) && parsedSupervisingFacultyIds.length > 0) {
-        for (const facultyId of parsedSupervisingFacultyIds) {
-          // Check that the user is a faculty member
-          const facultyUser = await tx.$queryRaw`SELECT * FROM "User" WHERE id = ${facultyId} AND role = 'FACULTY'`;
-          if (!facultyUser || !Array.isArray(facultyUser) || facultyUser.length === 0) {
-            throw new Error('All supervising faculty members must have the FACULTY role');
-          }
-          
-          // Preserve existing status or set to PENDING for new faculty members
-          const status = existingStatuses.has(facultyId) ? existingStatuses.get(facultyId) : 'PENDING';
-          
-          await tx.$executeRaw`
-            INSERT INTO "SupervisingFaculty" (thesisId, facultyId, status)
-            VALUES (${thesisId}, ${facultyId}, ${status})
-          `;
-        }
-      }
     });
 
     res.json({ message: 'Thesis updated successfully' });
@@ -441,21 +376,40 @@ router.delete('/:id', (req: Request, res: Response, next: NextFunction) => {
   try {
     // Check if thesis exists and belongs to the faculty member
     const thesis = await prisma.$queryRaw`
-      SELECT * FROM "Thesis" WHERE id = ${thesisId} AND "facultyId" = ${authReq.user.id}
+      SELECT * FROM "Thesis" WHERE id = ${thesisId} AND "facultyId" = ${authReq.user!.id}
     `;
 
     if (!thesis || !Array.isArray(thesis) || thesis.length === 0) {
       return res.status(404).json({ message: 'Thesis not found or you do not have permission to delete it' });
     }
 
-    // Delete the PDF file if it exists
-    deletePdfFile(thesis[0].pdfUrl);
+    // Delete related records first to handle foreign key constraints
+    await prisma.$transaction(async (tx) => {
+      // Delete supervising faculty records
+      await tx.$executeRaw`
+        DELETE FROM "SupervisingFaculty" WHERE thesisId = ${thesisId}
+      `;
 
-    // Delete thesis
-    await prisma.$executeRaw`
-      DELETE FROM "Thesis" 
-      WHERE id = ${thesisId} AND "facultyId" = ${authReq.user.id}
-    `;
+      // Delete student selections
+      await tx.$executeRaw`
+        DELETE FROM "_StudentSelections" WHERE A = ${thesisId}
+      `;
+
+      // Delete the student PDF file if it exists
+      if (thesis[0].studentPdfUrl) {
+        deletePdfFile(thesis[0].studentPdfUrl);
+      }
+
+      // Delete the faculty PDF file if it exists
+      if (thesis[0].pdfUrl) {
+        deletePdfFile(thesis[0].pdfUrl);
+      }
+
+      // Finally delete the thesis
+      await tx.$executeRaw`
+        DELETE FROM "Thesis" WHERE id = ${thesisId} AND "facultyId" = ${authReq.user!.id}
+      `;
+    });
 
     res.json({ message: 'Thesis deleted successfully' });
   } catch (error) {
@@ -645,23 +599,48 @@ router.post('/:id/grade', (req: Request, res: Response, next: NextFunction) => {
       // Main faculty
       updateField = 'mainFacultyMark';
     } else {
-      // Check if faculty is a supervisor
+      // Check if faculty is a supervisor and get their position
       const supervisingFaculty = await prisma.$queryRaw`
         SELECT * FROM "SupervisingFaculty" 
         WHERE thesisId = ${thesisId} AND facultyId = ${facultyId} AND status = 'ACCEPTED'
+        ORDER BY thesisId ASC, facultyId ASC
       `;
 
       if (!supervisingFaculty || !Array.isArray(supervisingFaculty) || supervisingFaculty.length === 0) {
         return res.status(403).json({ message: 'You do not have permission to grade this thesis' });
       }
 
-      // Determine which supervisor slot to use
-      if (thesisData.supervisor1Mark === null) {
+      // Get all supervising faculty for this thesis to determine position
+      const allSupervisingFaculty = await prisma.$queryRaw`
+        SELECT * FROM "SupervisingFaculty" 
+        WHERE thesisId = ${thesisId} AND status = 'ACCEPTED'
+        ORDER BY thesisId ASC, facultyId ASC
+      `;
+
+      if (!allSupervisingFaculty || !Array.isArray(allSupervisingFaculty)) {
+        return res.status(500).json({ message: 'Error retrieving supervising faculty information' });
+      }
+
+      // Find the position of the current faculty in the supervising faculty list
+      const supervisorIndex = allSupervisingFaculty.findIndex((sf: any) => sf.facultyId === facultyId);
+      
+      if (supervisorIndex === -1) {
+        return res.status(403).json({ message: 'You do not have permission to grade this thesis' });
+      }
+
+      // Determine which supervisor slot to use based on position
+      if (supervisorIndex === 0) {
         updateField = 'supervisor1Mark';
-      } else if (thesisData.supervisor2Mark === null) {
+      } else if (supervisorIndex === 1) {
         updateField = 'supervisor2Mark';
       } else {
-        return res.status(400).json({ message: 'All supervisor marks have already been assigned' });
+        return res.status(400).json({ message: 'Only the first two supervisors can grade this thesis' });
+      }
+
+      // Check if this supervisor has already graded
+      const currentMark = supervisorIndex === 0 ? thesisData.supervisor1Mark : thesisData.supervisor2Mark;
+      if (currentMark !== null) {
+        return res.status(400).json({ message: 'You have already graded this thesis' });
       }
     }
 
@@ -690,9 +669,11 @@ router.post('/:id/grade', (req: Request, res: Response, next: NextFunction) => {
                           updatedThesisData.supervisor1Mark + 
                           updatedThesisData.supervisor2Mark) / 3;
 
+        // Update final mark and change status to COMPLETED
         await prisma.$executeRaw`
           UPDATE "Thesis" 
           SET "finalMark" = ${finalMark},
+              status = 'COMPLETED',
               "updatedAt" = datetime('now')
           WHERE id = ${thesisId}
         `;
@@ -702,6 +683,66 @@ router.post('/:id/grade', (req: Request, res: Response, next: NextFunction) => {
     res.json({ message: 'Thesis graded successfully' });
   } catch (error) {
     console.error('Error grading thesis:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+// Invite a supervisor (student-initiated)
+router.post('/:id/invite-supervisor', (req: Request, res: Response, next: NextFunction) => {
+  authenticate(req as any, res, next);
+}, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+
+  if (!authReq.user) {
+    return res.status(401).json({ message: 'Authentication required' });
+  }
+
+  // Only students can invite supervisors
+  if (authReq.user.role !== 'STUDENT') {
+    return res.status(403).json({ message: 'Only students can invite supervisors' });
+  }
+
+  const thesisId = parseInt(req.params.id);
+  const { facultyId } = req.body;
+
+  if (!facultyId) {
+    return res.status(400).json({ message: 'Faculty ID is required' });
+  }
+
+  try {
+    // Check if thesis exists and is assigned to this student
+    const thesis = await prisma.thesis.findUnique({ where: { id: thesisId } });
+    if (!thesis || thesis.assignedToId !== authReq.user.id) {
+      return res.status(403).json({ message: 'You are not assigned to this thesis' });
+    }
+
+    // Check if faculty exists and is a faculty member
+    const faculty = await prisma.user.findUnique({ where: { id: facultyId } });
+    if (!faculty || faculty.role !== 'FACULTY') {
+      return res.status(404).json({ message: 'Faculty member not found' });
+    }
+
+    // Check if already invited
+    const existing = await prisma.supervisingFaculty.findUnique({
+      where: { thesisId_facultyId: { thesisId, facultyId } },
+    });
+    if (existing) {
+      return res.status(400).json({ message: 'This faculty member has already been invited' });
+    }
+
+    // Create invitation
+    await prisma.supervisingFaculty.create({
+      data: {
+        thesisId,
+        facultyId,
+        status: 'PENDING',
+        invitedById: authReq.user.id,
+      } as any,
+    });
+
+    res.json({ message: 'Supervisor invited successfully' });
+  } catch (error) {
+    console.error('Error inviting supervisor:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 });

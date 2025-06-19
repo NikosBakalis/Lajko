@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import { ThesisManagement } from './pages/ThesisManagement';
 import { FacultyDashboard } from './pages/FacultyDashboard';
+import Profile from './pages/Profile';
 import { useAuth } from './contexts/AuthContext';
 import { AuthProvider } from './contexts/AuthContext';
 
@@ -64,6 +65,14 @@ function AppRoutes() {
           element={
             !user ? <Navigate to="/login" replace /> :
             user.role === 'FACULTY' ? <FacultyDashboard /> : 
+            <Navigate to={getDefaultRoute()} replace />
+          } 
+        />
+        <Route 
+          path="/profile" 
+          element={
+            !user ? <Navigate to="/login" replace /> :
+            user.role === 'STUDENT' ? <Profile /> : 
             <Navigate to={getDefaultRoute()} replace />
           } 
         />

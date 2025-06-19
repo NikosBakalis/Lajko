@@ -22,7 +22,6 @@ import {
   Card,
   CardContent,
   Divider,
-  Autocomplete,
   Rating,
 } from '@mui/material';
 import { useAuth } from '../contexts/AuthContext';
@@ -142,7 +141,6 @@ export const FacultyDashboard: React.FC = () => {
       const formData = new FormData();
       formData.append('title', newThesis.title);
       formData.append('description', newThesis.description);
-      formData.append('supervisingFacultyIds', JSON.stringify(selectedSupervisors.map(s => s.id)));
       if (selectedFile) {
         formData.append('pdf', selectedFile);
       }
@@ -156,7 +154,6 @@ export const FacultyDashboard: React.FC = () => {
       setCreateDialogOpen(false);
       setNewThesis({ title: '', description: '' });
       setSelectedFile(null);
-      setSelectedSupervisors([]);
       loadData();
     } catch (err) {
       setError('Failed to create thesis. Please try again later.');
@@ -188,7 +185,6 @@ export const FacultyDashboard: React.FC = () => {
       const formData = new FormData();
       formData.append('title', editingThesis.title);
       formData.append('description', editingThesis.description);
-      formData.append('supervisingFacultyIds', JSON.stringify(selectedSupervisors.map(s => s.id)));
       if (selectedFile) {
         formData.append('pdf', selectedFile);
       }
@@ -202,7 +198,6 @@ export const FacultyDashboard: React.FC = () => {
       setEditDialogOpen(false);
       setEditingThesis(null);
       setSelectedFile(null);
-      setSelectedSupervisors([]);
       loadData();
     } catch (err) {
       setError('Failed to update thesis. Please try again later.');
@@ -390,7 +385,6 @@ export const FacultyDashboard: React.FC = () => {
                             startIcon={<EditIcon />}
                             onClick={() => {
                               setEditingThesis(thesis);
-                              setSelectedSupervisors(thesis.supervisingFaculty || []);
                               setEditDialogOpen(true);
                             }}
                           >
@@ -720,7 +714,6 @@ export const FacultyDashboard: React.FC = () => {
                               startIcon={<EditIcon />}
                               onClick={() => {
                                 setEditingThesis(thesis);
-                                setSelectedSupervisors(thesis.supervisingFaculty || []);
                                 setEditDialogOpen(true);
                               }}
                             >
@@ -950,7 +943,6 @@ export const FacultyDashboard: React.FC = () => {
                               startIcon={<EditIcon />}
                               onClick={() => {
                                 setEditingThesis(thesis);
-                                setSelectedSupervisors(thesis.supervisingFaculty || []);
                                 setEditDialogOpen(true);
                               }}
                             >
@@ -1149,7 +1141,6 @@ export const FacultyDashboard: React.FC = () => {
                               startIcon={<EditIcon />}
                               onClick={() => {
                                 setEditingThesis(thesis);
-                                setSelectedSupervisors(thesis.supervisingFaculty || []);
                                 setEditDialogOpen(true);
                               }}
                             >
@@ -1325,7 +1316,6 @@ export const FacultyDashboard: React.FC = () => {
           setCreateDialogOpen(false);
           setNewThesis({ title: '', description: '' });
           setSelectedFile(null);
-          setSelectedSupervisors([]);
         }}
       >
         <DialogTitle>Create New Thesis</DialogTitle>
@@ -1346,24 +1336,6 @@ export const FacultyDashboard: React.FC = () => {
               value={newThesis.description}
               onChange={(e) => setNewThesis(prev => ({ ...prev, description: e.target.value }))}
               required
-            />
-            <Autocomplete
-              multiple
-              options={facultyMembers}
-              getOptionLabel={(option) => option.fullName}
-              value={selectedSupervisors}
-              onChange={(_, newValue) => setSelectedSupervisors(newValue)}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Supervising Faculty Members"
-                  required
-                  helperText="Select exactly 2 faculty members"
-                />
-              )}
-              isOptionEqualToValue={(option, value) => option.id === value.id}
-              disableCloseOnSelect
-              limitTags={2}
             />
             <Box>
               <input
@@ -1400,7 +1372,6 @@ export const FacultyDashboard: React.FC = () => {
             setCreateDialogOpen(false);
             setNewThesis({ title: '', description: '' });
             setSelectedFile(null);
-            setSelectedSupervisors([]);
           }}>
             Cancel
           </Button>
@@ -1421,7 +1392,6 @@ export const FacultyDashboard: React.FC = () => {
           setEditDialogOpen(false);
           setEditingThesis(null);
           setSelectedFile(null);
-          setSelectedSupervisors([]);
         }}
       >
         <DialogTitle>Edit Thesis</DialogTitle>
@@ -1442,24 +1412,6 @@ export const FacultyDashboard: React.FC = () => {
               value={editingThesis?.description || ''}
               onChange={(e) => setEditingThesis(prev => prev ? { ...prev, description: e.target.value } : null)}
               required
-            />
-            <Autocomplete
-              multiple
-              options={facultyMembers}
-              getOptionLabel={(option) => option.fullName}
-              value={selectedSupervisors}
-              onChange={(_, newValue) => setSelectedSupervisors(newValue)}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Supervising Faculty Members"
-                  required
-                  helperText="Select exactly 2 faculty members"
-                />
-              )}
-              isOptionEqualToValue={(option, value) => option.id === value.id}
-              disableCloseOnSelect
-              limitTags={2}
             />
             <Box>
               <input
@@ -1501,7 +1453,6 @@ export const FacultyDashboard: React.FC = () => {
             setEditDialogOpen(false);
             setEditingThesis(null);
             setSelectedFile(null);
-            setSelectedSupervisors([]);
           }}>
             Cancel
           </Button>

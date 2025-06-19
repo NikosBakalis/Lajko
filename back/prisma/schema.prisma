@@ -38,6 +38,7 @@ model User {
   assignedTheses    Thesis[] @relation("AssignedTheses")
   supervisingTheses SupervisingFaculty[]
   selectedTheses    Thesis[] @relation("StudentSelections")
+  supervisorInvitations SupervisingFaculty[] @relation("StudentInvitations")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
@@ -69,6 +70,8 @@ model SupervisingFaculty {
   faculty    User   @relation(fields: [facultyId], references: [id])
   facultyId  Int
   status     String @default("PENDING")
+  invitedBy  User?   @relation("StudentInvitations", fields: [invitedById], references: [id])
+  invitedById Int?
 
   @@id([thesisId, facultyId])
 }

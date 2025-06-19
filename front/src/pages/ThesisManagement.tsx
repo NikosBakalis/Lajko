@@ -14,6 +14,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Autocomplete,
+  TextField,
 } from '@mui/material';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import UploadIcon from '@mui/icons-material/Upload';
@@ -32,6 +34,8 @@ export const ThesisManagement: React.FC = () => {
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [facultyMembers, setFacultyMembers] = useState<User[]>([]);
+  const [selectedSupervisorToInvite, setSelectedSupervisorToInvite] = useState<User | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -65,7 +69,13 @@ export const ThesisManagement: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [loadData]);
+    // Load faculty members for supervisor invitation
+    const loadFaculty = async () => {
+      const facultyResponse = await api.get<User[]>('/users?role=FACULTY');
+      setFacultyMembers(facultyResponse.data);
+    };
+    loadFaculty();
+  }, [user?.id]);
 
   const handleSelectThesis = async (thesisId: number) => {
     try {
@@ -121,6 +131,17 @@ export const ThesisManagement: React.FC = () => {
     window.location.href = '/login';
   };
 
+  const handleInviteSupervisor = async () => {
+    if (!assignedThesis || !selectedSupervisorToInvite) return;
+    try {
+      await api.post(`/theses/${assignedThesis.id}/invite-supervisor`, { facultyId: selectedSupervisorToInvite.id });
+      setSelectedSupervisorToInvite(null);
+      await loadData();
+    } catch (err) {
+      setError('Failed to invite supervisor.');
+    }
+  };
+
   if (loading) {
     return (
       <Container>
@@ -135,13 +156,22 @@ export const ThesisManagement: React.FC = () => {
         <Typography variant="h4" gutterBottom>
           Thesis Management
         </Typography>
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={handleLogout}
-        >
-          Logout
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            color="primary"
+            onClick={() => window.location.href = '/profile'}
+          >
+            Profile
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleLogout}
+          >
+            Logout
+          </Button>
+        </Box>
       </Box>
 
       {error && (
@@ -178,7 +208,7 @@ export const ThesisManagement: React.FC = () => {
                       <strong>Main Faculty:</strong> {assignedThesis.faculty.fullName}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      <strong>Supervising Faculty:</strong> 
+                      <strong>Supervising Faculty: </strong> 
                       {assignedThesis.supervisingFaculty.length > 0 ? (
                         assignedThesis.supervisingFaculty.map((faculty: any, index: number) => (
                           <span key={faculty.id}>
@@ -327,6 +357,92 @@ export const ThesisManagement: React.FC = () => {
                         </Typography>
                       )}
                     </Box>
+
+                    {/* Invite Supervisors Section */}
+                    {assignedThesis && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="subtitle1" gutterBottom>
+                          Invite Supervisors
+                        </Typography>
+                        {assignedThesis.supervisingFaculty.length < 2 ? (
+                          <Box sx={{ mb: 2 }}>
+                            <Autocomplete
+                              multiple={false}
+                              options={facultyMembers.filter(f => 
+                                f.id !== assignedThesis.facultyId && 
+                                !assignedThesis.supervisingFaculty.some((sf: any) => sf.id === f.id)
+                              )}
+                              getOptionLabel={(option) => option.fullName}
+                              value={selectedSupervisorToInvite}
+                              onChange={(_, newValue) => setSelectedSupervisorToInvite(newValue)}
+                              renderInput={(params) => (
+                                <TextField
+                                  {...params}
+                                  label="Select Faculty to Invite"
+                                  helperText="You can invite up to 2 supervisors."
+                                />
+                              )}
+                              isOptionEqualToValue={(option, value) => option.id === value.id}
+                            />
+                            <Button
+                              variant="contained"
+                              sx={{ mt: 1 }}
+                              disabled={!selectedSupervisorToInvite}
+                              onClick={handleInviteSupervisor}
+                            >
+                              Invite Supervisor
+                            </Button>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            You have invited the maximum number of supervisors.
+                          </Typography>
+                        )}
+                        <Box sx={{ mt: 2 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Invited Supervisors:</strong>
+                            {assignedThesis.supervisingFaculty.length > 0 ? (
+                              assignedThesis.supervisingFaculty.map((faculty: any, index: number) => (
+                                <span key={faculty.id}>
+                                  {faculty.fullName}
+                                  {faculty.status === 'ACCEPTED' && (
+                                    <Typography
+                                      component="span"
+                                      variant="caption"
+                                      sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'success.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
+                                    >
+                                      ACCEPTED
+                                    </Typography>
+                                  )}
+                                  {faculty.status === 'PENDING' && (
+                                    <Typography
+                                      component="span"
+                                      variant="caption"
+                                      sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'warning.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
+                                    >
+                                      PENDING
+                                    </Typography>
+                                  )}
+                                  {faculty.status === 'REJECTED' && (
+                                    <Typography
+                                      component="span"
+                                      variant="caption"
+                                      sx={{ ml: 1, px: 1, py: 0.5, bgcolor: 'error.main', color: 'white', borderRadius: 1, fontSize: '0.7rem' }}
+                                    >
+                                      REJECTED
+                                    </Typography>
+                                  )}
+                                  {index < assignedThesis.supervisingFaculty.length - 1 && ', '}
+                                </span>
+                              ))
+                            ) : (
+                              ' None'
+                            )}
+                          </Typography>
+                        </Box>
+                      </>
+                    )}
                   </CardContent>
                   <CardActions>
                     <Button 
@@ -372,7 +488,7 @@ export const ThesisManagement: React.FC = () => {
                       <strong>Main Faculty:</strong> {selectedThesis.faculty.fullName}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      <strong>Supervising Faculty:</strong> 
+                      <strong>Supervising Faculty: </strong> 
                       {selectedThesis.supervisingFaculty.length > 0 ? (
                         selectedThesis.supervisingFaculty.map((faculty: any, index: number) => (
                           <span key={faculty.id}>
@@ -495,7 +611,7 @@ export const ThesisManagement: React.FC = () => {
                           <strong>Main Faculty:</strong> {thesis.faculty.fullName}
                         </Typography>
                         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                          <strong>Supervising Faculty:</strong> 
+                          <strong>Supervising Faculty: </strong> 
                           {thesis.supervisingFaculty.length > 0 ? (
                             thesis.supervisingFaculty.map((faculty: any, index: number) => (
                               <span key={faculty.id}>
