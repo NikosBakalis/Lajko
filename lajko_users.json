@@ -1,0 +1,143 @@
+[
+    {
+      "email": "bombardino@gmail.com",
+      "fullName": "Bombardino Crocodilo",
+      "password": "123",
+      "role": "FACULTY",
+      "username": "Bombardino"
+    },
+    {
+      "email": "tralalero@gmail.com",
+      "fullName": "Tralalero Tralala",
+      "password": "123",
+      "role": "FACULTY",
+      "username": "Tralalero"
+    },
+    {
+      "email": "lirili@gmail.com",
+      "fullName": "Lirili Larila",
+      "password": "123",
+      "role": "FACULTY",
+      "username": "Lirili"
+    },
+    {
+      "email": "brrbrr@gmail.com",
+      "fullName": "Brr Brr Patapim",
+      "password": "123",
+      "role": "FACULTY",
+      "username": "BrrBrr"
+    },
+    {
+      "email": "tungtung@gmail.com",
+      "fullName": "Tung Tung Tung Sahur",
+      "password": "123",
+      "role": "FACULTY",
+      "username": "TungTung"
+    },
+    {
+      "email": "ballerina@gmail.com",
+      "fullName": "Ballerina Cappuccina",
+      "password": "123",
+      "role": "FACULTY",
+      "username": "Ballerina"
+    },
+    {
+      "email": "bombombini@gmail.com",
+      "fullName": "Bombombini Gusini",
+      "password": "123",
+      "role": "FACULTY",
+      "username": "Bombombini"
+    },
+    {
+      "email": "trippitroppi@gmail.com",
+      "fullName": "Trippi Troppi",
+      "password": "123",
+      "role": "FACULTY",
+      "username": "TrippiTroppi"
+    },
+    {
+      "email": "frigo@gmail.com",
+      "fullName": "Frigo Camello",
+      "password": "123",
+      "role": "FACULTY",
+      "username": "FrigoCamello"
+    },
+    {
+      "email": "assassino@gmail.com",
+      "fullName": "Cappuccino Assassino",
+      "password": "123",
+      "role": "FACULTY",
+      "username": "Assassino"
+    },
+    {
+        "email": "oldjohn1@gmail.com",
+        "fullName": "Old John 1",
+        "password": "123",
+        "role": "STUDENT",
+        "username": "OldJohn1"
+      },
+      {
+        "email": "oldjohn2@gmail.com",
+        "fullName": "Old John 2",
+        "password": "123",
+        "role": "STUDENT",
+        "username": "OldJohn2"
+      },
+      {
+        "email": "oldjohn3@gmail.com",
+        "fullName": "Old John 3",
+        "password": "123",
+        "role": "STUDENT",
+        "username": "OldJohn3"
+      },
+      {
+        "email": "oldjohn4@gmail.com",
+        "fullName": "Old John 4",
+        "password": "123",
+        "role": "STUDENT",
+        "username": "OldJohn4"
+      },
+      {
+        "email": "oldjohn5@gmail.com",
+        "fullName": "Old John 5",
+        "password": "123",
+        "role": "STUDENT",
+        "username": "OldJohn5"
+      },
+      {
+        "email": "oldjohn6@gmail.com",
+        "fullName": "Old John 6",
+        "password": "123",
+        "role": "STUDENT",
+        "username": "OldJohn6"
+      },
+      {
+        "email": "oldjohn7@gmail.com",
+        "fullName": "Old John 7",
+        "password": "123",
+        "role": "STUDENT",
+        "username": "OldJohn7"
+      },
+      {
+        "email": "oldjohn8@gmail.com",
+        "fullName": "Old John 8",
+        "password": "123",
+        "role": "STUDENT",
+        "username": "OldJohn8"
+      },
+      {
+        "email": "oldjohn9@gmail.com",
+        "fullName": "Old John 9",
+        "password": "123",
+        "role": "STUDENT",
+        "username": "OldJohn9"
+      },
+      {
+        "email": "oldjohn10@gmail.com",
+        "fullName": "Old John 10",
+        "password": "123",
+        "role": "STUDENT",
+        "username": "OldJohn10"
+      }
+  ]
+  

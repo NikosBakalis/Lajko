@@ -152,6 +152,174 @@ router.post('/', (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
+// Bulk create users (for admin/secretary)
+router.post('/bulk', (req: Request, res: Response, next: NextFunction) => {
+  authenticate(req as any, res, next);
+}, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  
+  if (!authReq.user) {
+    return res.status(401).json({ message: 'Authentication required' });
+  }
+
+  // Check if user is secretary
+  if (authReq.user.role !== 'SECRETARY') {
+    return res.status(403).json({ message: 'Only secretaries can create users' });
+  }
+
+  try {
+    const users = req.body;
+    
+    if (!Array.isArray(users)) {
+      return res.status(400).json({
+        error: 'Invalid input',
+        details: 'Request body must be an array of users'
+      });
+    }
+
+    if (users.length === 0) {
+      return res.status(400).json({
+        error: 'Invalid input',
+        details: 'Users array cannot be empty'
+      });
+    }
+
+    if (users.length > 100) {
+      return res.status(400).json({
+        error: 'Invalid input',
+        details: 'Cannot create more than 100 users at once'
+      });
+    }
+
+    const requiredFields = ['username', 'password', 'email', 'fullName', 'role'];
+    const validRoles = ['FACULTY', 'STUDENT', 'SECRETARY'];
+    
+    // Validate all users first
+    const validationErrors: Array<{ index: number; error: string }> = [];
+    
+    for (let i = 0; i < users.length; i++) {
+      const user = users[i];
+      
+      // Check required fields
+      const missingFields = requiredFields.filter(field => !user[field]);
+      if (missingFields.length > 0) {
+        validationErrors.push({
+          index: i,
+          error: `Missing required fields: ${missingFields.join(', ')}`
+        });
+        continue;
+      }
+      
+      // Validate role
+      if (!validRoles.includes(user.role)) {
+        validationErrors.push({
+          index: i,
+          error: `Invalid role. Must be one of: ${validRoles.join(', ')}`
+        });
+        continue;
+      }
+      
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(user.email)) {
+        validationErrors.push({
+          index: i,
+          error: 'Invalid email format'
+        });
+        continue;
+      }
+    }
+    
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: validationErrors
+      });
+    }
+
+    // Check for duplicate usernames and emails across all users
+    const usernames = users.map(u => u.username);
+    const emails = users.map(u => u.email);
+    
+    const duplicateUsernames = usernames.filter((username, index) => usernames.indexOf(username) !== index);
+    const duplicateEmails = emails.filter((email, index) => emails.indexOf(email) !== index);
+    
+    if (duplicateUsernames.length > 0) {
+      return res.status(400).json({
+        error: 'Duplicate usernames found',
+        details: `Duplicate usernames: ${duplicateUsernames.join(', ')}`
+      });
+    }
+    
+    if (duplicateEmails.length > 0) {
+      return res.status(400).json({
+        error: 'Duplicate emails found',
+        details: `Duplicate emails: ${duplicateEmails.join(', ')}`
+      });
+    }
+
+    // Check if any usernames or emails already exist in database
+    const existingUsers = await prisma.user.findMany({
+      where: {
+        OR: [
+          { username: { in: usernames } },
+          { email: { in: emails } }
+        ]
+      }
+    });
+
+    if (existingUsers.length > 0) {
+      const existingUsernames = existingUsers.map(u => u.username);
+      const existingEmails = existingUsers.map(u => u.email);
+      
+      return res.status(400).json({
+        error: 'Users already exist',
+        details: {
+          existingUsernames,
+          existingEmails
+        }
+      });
+    }
+
+    // Create all users in a transaction
+    const createdUsers = await prisma.$transaction(async (tx) => {
+      const results = [];
+      
+      for (const userData of users) {
+        const { password, ...user } = userData;
+        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        const createdUser = await tx.user.create({
+          data: {
+            ...user,
+            password: hashedPassword,
+            studentId: user.studentId || null,
+            postalAddress: user.postalAddress || null,
+            mobilePhone: user.mobilePhone || null,
+            landlinePhone: user.landlinePhone || null,
+          },
+        });
+        
+        const { password: _, ...userWithoutPassword } = createdUser;
+        results.push(userWithoutPassword);
+      }
+      
+      return results;
+    });
+
+    res.status(201).json({
+      message: `Successfully created ${createdUsers.length} users`,
+      data: createdUsers
+    });
+  } catch (error: unknown) {
+    console.error('Error creating users in bulk:', error);
+    res.status(500).json({
+      error: 'Failed to create users',
+      details: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 // Delete user (for admin/secretary)
 router.delete('/:id', (req: Request, res: Response, next: NextFunction) => {
   authenticate(req as any, res, next);

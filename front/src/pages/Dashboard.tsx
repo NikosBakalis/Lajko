@@ -22,6 +22,7 @@ import {
   TableRow,
   TableCell,
   Alert,
+  Input,
 } from '@mui/material';
 import { userApi, User, UserRole, CreateUserData } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -31,6 +32,7 @@ const Dashboard: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [newUser, setNewUser] = useState<CreateUserData>({
     username: '',
     password: '',
@@ -40,6 +42,8 @@ const Dashboard: React.FC = () => {
   });
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<number | null>(null);
+  const [bulkUploadFile, setBulkUploadFile] = useState<File | null>(null);
+  const [bulkUploadLoading, setBulkUploadLoading] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -68,6 +72,7 @@ const Dashboard: React.FC = () => {
     e.preventDefault();
     try {
       setError(null);
+      setSuccess(null);
       await userApi.create(newUser);
       setNewUser({ 
         username: '', 
@@ -76,10 +81,68 @@ const Dashboard: React.FC = () => {
         email: '',
         role: 'STUDENT' as UserRole 
       });
+      setSuccess('User created successfully!');
       loadData();
     } catch (error) {
       setError('Failed to create user. Please try again later.');
       console.error('Failed to create user:', error);
+    }
+  };
+
+  const handleBulkUpload = async () => {
+    if (!bulkUploadFile) {
+      setError('Please select a file to upload.');
+      return;
+    }
+
+    try {
+      setBulkUploadLoading(true);
+      setError(null);
+      setSuccess(null);
+
+      const text = await bulkUploadFile.text();
+      let users: CreateUserData[];
+
+      try {
+        users = JSON.parse(text);
+      } catch (parseError) {
+        setError('Invalid JSON format. Please check your file.');
+        return;
+      }
+
+      if (!Array.isArray(users)) {
+        setError('JSON must contain an array of users.');
+        return;
+      }
+
+      const response = await userApi.bulkCreate(users);
+      setSuccess(response.data.message);
+      setBulkUploadFile(null);
+      loadData();
+    } catch (error: any) {
+      if (error.response?.data?.error) {
+        setError(`Bulk upload failed: ${error.response.data.error}`);
+        if (error.response.data.details) {
+          console.error('Upload details:', error.response.data.details);
+        }
+      } else {
+        setError('Failed to upload users. Please try again later.');
+      }
+      console.error('Failed to upload users:', error);
+    } finally {
+      setBulkUploadLoading(false);
+    }
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.type !== 'application/json' && !file.name.endsWith('.json')) {
+        setError('Please select a valid JSON file.');
+        return;
+      }
+      setBulkUploadFile(file);
+      setError(null);
     }
   };
 
@@ -88,7 +151,9 @@ const Dashboard: React.FC = () => {
 
     try {
       setError(null);
+      setSuccess(null);
       await userApi.delete(userToDelete);
+      setSuccess('User deleted successfully!');
       loadData();
     } catch (error) {
       setError('Failed to delete user. Please try again later.');
@@ -136,8 +201,14 @@ const Dashboard: React.FC = () => {
       </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>
           {error}
+        </Alert>
+      )}
+
+      {success && (
+        <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess(null)}>
+          {success}
         </Alert>
       )}
       
@@ -146,8 +217,8 @@ const Dashboard: React.FC = () => {
         <Typography variant="h6" gutterBottom>
           Users
         </Typography>
-        <TableContainer>
-          <Table>
+        <TableContainer sx={{ maxHeight: 400, overflow: 'auto' }}>
+          <Table stickyHeader>
             <TableHead>
               <TableRow>
                 <TableCell>Username</TableCell>
@@ -180,6 +251,47 @@ const Dashboard: React.FC = () => {
             </TableBody>
           </Table>
         </TableContainer>
+      </Paper>
+
+      {/* Bulk Upload Section */}
+      <Paper sx={{ p: 2, mb: 4 }}>
+        <Typography variant="h6" gutterBottom>
+          Bulk Upload Users
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Upload a JSON file with an array of users. Each user should have: username, password, email, fullName, and role (STUDENT or FACULTY).
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          <Input
+            type="file"
+            inputProps={{ accept: '.json' }}
+            onChange={handleFileChange}
+            sx={{ display: 'none' }}
+            id="bulk-upload-file"
+          />
+          <label htmlFor="bulk-upload-file">
+            <Button
+              variant="outlined"
+              component="span"
+              disabled={bulkUploadLoading}
+            >
+              Select JSON File
+            </Button>
+          </label>
+          {bulkUploadFile && (
+            <Typography variant="body2" color="primary">
+              Selected: {bulkUploadFile.name}
+            </Typography>
+          )}
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleBulkUpload}
+            disabled={!bulkUploadFile || bulkUploadLoading}
+          >
+            {bulkUploadLoading ? 'Uploading...' : 'Upload Users'}
+          </Button>
+        </Box>
       </Paper>
 
       {/* Create User Form */}

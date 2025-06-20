@@ -71,6 +71,7 @@ export const userApi = {
   getAll: () => api.get<User[]>('/users'),
   getById: (id: number) => api.get<User>(`/users/${id}`),
   create: (data: CreateUserData) => api.post<User>('/users', data),
+  bulkCreate: (users: CreateUserData[]) => api.post<{ message: string; data: User[] }>('/users/bulk', users),
   update: (id: number, data: Partial<User>) => api.put<User>(`/users/${id}`, data),
   delete: (id: number) => api.delete(`/users/${id}`),
 };
